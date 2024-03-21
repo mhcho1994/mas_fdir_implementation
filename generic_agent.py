@@ -9,11 +9,11 @@ import numpy as np
 
 class GenericAgent():
     # Constructor
-    def __init__(self, agent_id=0, init_position=np.zeros((3,1)), faulty=False, err_vector=np.zeros((3,1))):
+    def __init__(self, agent_id=0, init_position=np.zeros((3,1)), faulty=False, err_vector=None):
         self.agent_id       =   agent_id
         self.position       =   init_position
         self.faulty         =   faulty 
-        self.error_vector   =   err_vector
+        self.error_vector   =   err_vector if (err_vector is not None) else np.zeros(self.position.shape)
         self.neighbor_ids   =   []
         
         self.edge_idx       =   []
