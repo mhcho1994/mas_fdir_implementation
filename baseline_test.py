@@ -50,11 +50,15 @@ agents[2]   =   Agent(agent_id= 2,
 agents[3]   =   Agent(agent_id= 3,
                       init_position= np.array([[-d/4, d*np.sqrt(3)/4]]).T)
 agents[4]   =   Agent(agent_id= 4,
-                      init_position= np.array([[0, d*np.sqrt(3)/2]]).T,
-                      faulty= True,
-                      err_vector= np.array([[1, 0]]).T)
+                      init_position= np.array([[0, d*np.sqrt(3)/2]]).T)
 agents[5]   =   Agent(agent_id= 5,
                       init_position= np.array([[d/4, d*np.sqrt(3)/4]]).T)
+
+# Add error vector
+faulty_id   =   np.random.randint(0, high=num_agents)
+fault_vec   =   1*np.random.rand(dim, 1)
+agents[faulty_id].faulty = True
+agents[faulty_id].error_vector = fault_vec
 
 x_true = []
 for agent in agents:
@@ -129,9 +133,10 @@ p_true = [agents[i].get_true_pos() for i in range(num_agents)]      # CONSTANT: 
 y = measurements(p_true, x_star)                                    # CONSTANT: Phi(p_hat + x_hat), true interagent measurement
 
 
-
 ###      Initializations    - Optimization Parameters
 rho = 1.0
+x_dev = [np.zeros((n_scp*n_admm))] * num_agents # abs error between x_true and x_star over iterations
+total_iterations = np.arange((n_scp*n_admm))
 for agent_id, agent in enumerate(agents):
     num_edges       = len(agent.get_edge_indices())
     num_neighbors   = len(agent.get_neighbors())
@@ -148,7 +153,16 @@ for agent_id, agent in enumerate(agents):
     agent.init_w(np.zeros((dim, 1)), agent.get_neighbors())
 
 
+###     Initializations     - List Parameters
+print("\n~ ~ ~ ~ PARAMETERS ~ ~ ~ ~")
+print("rho:", rho)
+print("Number of agents:", num_agents)
+print("Faulty Agent ID:", faulty_id)
+print("Faulty Agent Vector:", fault_vec.T)
+
+
 ###     Looping             - SCP Outer Loop
+print("\nStarting Loop")
 for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
     new_measurement = measurements(p_hat, x_star)
     z       =   [(y[i] - meas) for i, meas in enumerate(new_measurement)]
@@ -184,6 +198,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
             prob1.solve(verbose=show_prob1)
             # assert prob1.status == cp.OPTIMAL, "Optimization problem not solved"
             agent.x_bar = np.array(agent.x_cp.value).reshape((-1, 1))
+            x_dev[agent_id][inner_i + outer_i*n_scp] = np.linalg.norm(agent.x_bar - x_true[agent_id])
 
         ##      Minimization        - Thresholding Parameter
         # TODO: Implement
@@ -236,25 +251,50 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
     # Update Error Vectors after ADMM subroutine
     for agent_id, agent in enumerate(agents): 
         for list_ind, nbr_id in enumerate(agent.get_neighbors()):
-            agent.x_star[nbr_id]    = agent.x_star[nbr_id] + agents[nbr_id].x_bar
-        agent.x_star[agent_id]  = agent.x_star[agent_id] + agent.x_bar
-        x_star[agent_id]         = agent.x_star[agent_id]
-        # Update position estimates using error vector
-        p_est[agent_id]         = p_hat[agent_id] + x_star[agent_id]
+            agent.x_star[nbr_id] = agent.x_star[nbr_id] + agents[nbr_id].x_bar
+        
+        agent.x_star[agent_id] = agent.x_star[agent_id] + agent.x_bar
+        x_star[agent_id] = agent.x_star[agent_id]
+        
+        # Update position and x_dev
+        p_est[agent_id] = p_hat[agent_id] + x_star[agent_id]
 
 ###     END Looping         - SCP Outer Loop
 
 
-print("dun")
+print("\nPlotting")
 print()
 
 ### Plotting
+# Compare position estimates before and after reconstruction
 plt.figure()
 plt.title("Agent Position Estimates")
 plt.xlabel("x")
 plt.ylabel("y")
 for agent_id, agent in enumerate(agents):
-    plt.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c')
-    plt.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m')
+    plt.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Before Reconstruction")
+    plt.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="After Reconstruction")
+    plt.scatter(p_true[agent_id][0], p_true[agent_id][1], marker='x', c='k', label="True")
+plt.legend(["Before", "After", "True"], loc='best')
 plt.grid(True)
+
+
+# Show convergence of estimated error vector to true error vector over time
+plt.figure()
+plt.title("Convergence of Error Vector")
+plt.xlabel("Iterations")
+plt.ylabel("||x* - x||")
+max_y = 0
+for agent_id, agent in enumerate(agents):
+    print(agent_id)
+
+    label_str = "Agent " + str(agent_id)
+    max_y = max(max_y, max(x_dev[agent_id]))
+    print(max_y)
+
+    plt.plot(total_iterations, x_dev[agent_id], label=label_str)
+plt.ylim((0, max_y))
+plt.legend(loc='best')
+plt.grid(True)
+
 plt.show()
