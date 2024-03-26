@@ -2,6 +2,7 @@
 Project:    TII - MAS Fault Detection, Identification, and Reconfiguration
 Author:     Vishnu Vijay
 Description:
+            - 2D Project
             - Implementation of " Collaborative Fault-Identification &
               Reconstruction in Multi-Agent Systems" by Khan et al.
             - Algorithm uses inter-agent distances to reconstruct a sparse
@@ -18,8 +19,8 @@ Description:
 import numpy as np
 import cvxpy as cp
 import matplotlib.pyplot as plt
-from copy import deepcopy
 
+from copy import deepcopy
 from tqdm import tqdm
 
 ###     Imports             - User-Defined Files
@@ -34,6 +35,7 @@ num_agents      =   6
 num_faulty      =   1   # must be << num_agents for sparse error assumption
 n_scp           =   10  # Number of SCP iterations
 n_admm          =   10  # Number of ADMM iterations
+n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 
@@ -55,13 +57,13 @@ agents[5]   =   Agent(agent_id= 5,
                       init_position= np.array([[d/4, d*np.sqrt(3)/4]]).T)
 
 # Add error vector
-faulty_id   =   np.random.randint(0, high=num_agents)
-fault_vec   =   1*np.random.rand(dim, 1)
+faulty_id   =   2*np.random.randint(0, high=num_agents/2) + 1
+fault_vec   =   0.6*np.random.rand(dim, 1)
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
 x_true = []
-for agent in agents:
+for id, agent in enumerate(agents):
     x_true.append(agent.error_vector)
 
 
@@ -126,17 +128,18 @@ def get_Jacobian_matrix(p, x):
 
 
 ###     Initializations     - Measurements and Positions
-x_star = [np.zeros((dim, 1))] * num_agents                          # Will be updated as algorithm loops and err vector is reconstructed
-p_est = [agents[i].get_estimated_pos() for i in range(num_agents)]  # Will be updated as algorithm loops and err vector is reconstructed
-p_hat = deepcopy(p_est)                                             # CONSTANT: Reported positions of agents
-p_true = [agents[i].get_true_pos() for i in range(num_agents)]      # CONSTANT: True pos
-y = measurements(p_true, x_star)                                    # CONSTANT: Phi(p_hat + x_hat), true interagent measurement
+x_star = [np.zeros((dim, 1)) for i in range(num_agents)]                    # Equivalent to last element in x_history (below)
+x_history = [np.zeros((dim, (n_iter))) for i in range(num_agents)]    # Value of x at each iteration of algorithm
+x_norm_history = [np.zeros((1, (n_iter))) for i in range(num_agents)] # Norm of difference between x_history and x_true
+p_est = [agents[i].get_estimated_pos() for i in range(num_agents)]          # Will be updated as algorithm loops and err vector is reconstructed
+p_hat = deepcopy(p_est)                                                     # CONSTANT: Reported positions of agents
+p_true = [agents[i].get_true_pos() for i in range(num_agents)]              # CONSTANT: True pos
+y = measurements(p_true, x_star)                                            # CONSTANT: Phi(p_hat + x_hat), true interagent measurement
 
 
 ###      Initializations    - Optimization Parameters
 rho = 1.0
-x_dev = [np.zeros((n_scp*n_admm))] * num_agents # abs error between x_true and x_star over iterations
-total_iterations = np.arange((n_scp*n_admm))
+total_iterations = np.arange((n_iter))
 for agent_id, agent in enumerate(agents):
     num_edges       = len(agent.get_edge_indices())
     num_neighbors   = len(agent.get_neighbors())
@@ -163,7 +166,7 @@ print("Faulty Agent Vector:", fault_vec.T)
 
 ###     Looping             - SCP Outer Loop
 print("\nStarting Loop")
-for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
+for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
     new_measurement = measurements(p_hat, x_star)
     z       =   [(y[i] - meas) for i, meas in enumerate(new_measurement)]
     R       =   get_Jacobian_matrix(p_hat, x_star)
@@ -197,8 +200,10 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
             prob1 = cp.Problem(cp.Minimize(objective), [])
             prob1.solve(verbose=show_prob1)
             # assert prob1.status == cp.OPTIMAL, "Optimization problem not solved"
-            agent.x_bar = np.array(agent.x_cp.value).reshape((-1, 1))
-            x_dev[agent_id][inner_i + outer_i*n_scp] = np.linalg.norm(agent.x_bar - x_true[agent_id])
+            agent.x_bar = deepcopy(np.array(agent.x_cp.value).reshape((-1, 1)))
+            new_x = deepcopy(agent.x_bar.flatten()) + x_star[agent_id].flatten()
+            x_history[agent_id][:, inner_i + outer_i*n_scp] = new_x.flatten()
+            x_norm_history[agent_id][:, inner_i + outer_i*n_scp] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
 
         ##      Minimization        - Thresholding Parameter
         # TODO: Implement
@@ -227,7 +232,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
             prob2.solve(verbose=show_prob2)
             # assert prob2.status == cp.OPTIMAL, "Optimization problem not solved"
             for _, nbr_id in enumerate(agent.get_neighbors()):
-                agent.w[nbr_id] = np.array(agent.w_cp[nbr_id].value).reshape((-1, 1))
+                agent.w[nbr_id] = deepcopy(np.array(agent.w_cp[nbr_id].value).reshape((-1, 1)))
 
 
         ##      Multipliers         - Update Lagrangian Multipliers of Minimization Problem
@@ -239,12 +244,12 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
                 for nbr_id in agent.get_neighbors():
                     constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[agent_id]
                 
-                agent.lam[edge_ind] = agent.lam[edge_ind] + rho * constr_c
+                agent.lam[edge_ind] = deepcopy(agent.lam[edge_ind] + rho * constr_c)
 
             # Summation for d() constraint
             for _, nbr_id in enumerate(agent.get_neighbors()):
                 constr_d = agent.x_bar - agent.w[nbr_id]
-                agent.mu[nbr_id] = agent.mu[nbr_id] + rho * constr_d
+                agent.mu[nbr_id] = deepcopy(agent.mu[nbr_id] + rho * constr_d)
 
     ###     END Looping         - ADMM Inner Loop
     
@@ -262,10 +267,11 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
 ###     END Looping         - SCP Outer Loop
 
 
+
+###     Plotting            - Static Position Estimates
 print("\nPlotting")
 print()
 
-### Plotting
 # Compare position estimates before and after reconstruction
 plt.figure()
 plt.title("Agent Position Estimates")
@@ -280,21 +286,32 @@ plt.grid(True)
 
 
 # Show convergence of estimated error vector to true error vector over time
+#TODO: This needs to be fixed.
+x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
 plt.figure()
+for agent_id, agent in enumerate(agents):
+    label_str = "Agent " + str(agent_id)
+    plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
 plt.title("Convergence of Error Vector")
 plt.xlabel("Iterations")
 plt.ylabel("||x* - x||")
-max_y = 0
-for agent_id, agent in enumerate(agents):
-    print(agent_id)
-
-    label_str = "Agent " + str(agent_id)
-    max_y = max(max_y, max(x_dev[agent_id]))
-    print(max_y)
-
-    plt.plot(total_iterations, x_dev[agent_id], label=label_str)
-plt.ylim((0, max_y))
+plt.ylim(left=0)
+plt.xlim((0, n_scp*n_admm))
 plt.legend(loc='best')
 plt.grid(True)
 
 plt.show()
+
+
+###     Plotting            - Animation
+# Create position estimate over time data
+p_hist = []
+for id in range(num_agents):
+    p_id = np.zeros((dim, n_iter))
+    for iter in range(n_iter):
+        p_id[:,iter] = p_hat[id].flatten() + x_history[id][:, iter]
+    p_hist.append(p_id)
+
+
+fig, ax = plt.subplot()
+
