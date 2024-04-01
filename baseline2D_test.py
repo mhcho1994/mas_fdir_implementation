@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 
 from copy import deepcopy
 from tqdm import tqdm
+from matplotlib import animation
 
 ###     Imports             - User-Defined Files
 from generic_agent import GenericAgent as Agent
@@ -57,10 +58,12 @@ agents[5]   =   Agent(agent_id= 5,
                       init_position= np.array([[d/4, d*np.sqrt(3)/4]]).T)
 
 # Add error vector
-faulty_id   =   2*np.random.randint(0, high=num_agents/2) + 1
-fault_vec   =   0.6*np.random.rand(dim, 1)
-agents[faulty_id].faulty = True
-agents[faulty_id].error_vector = fault_vec
+faulty_id = 2*np.random.randint(0, high=num_agents/2) + 1
+fault_vec = 0.5*np.random.rand(dim, 1)
+agents[0].faulty = True
+agents[0].error_vector = np.array([[0], [1]]) # shift up
+agents[4].faulty = True
+agents[4].error_vector = np.array([[1], [0]]) # shift right
 
 x_true = []
 for id, agent in enumerate(agents):
@@ -129,8 +132,8 @@ def get_Jacobian_matrix(p, x):
 
 ###     Initializations     - Measurements and Positions
 x_star = [np.zeros((dim, 1)) for i in range(num_agents)]                    # Equivalent to last element in x_history (below)
-x_history = [np.zeros((dim, (n_iter))) for i in range(num_agents)]    # Value of x at each iteration of algorithm
-x_norm_history = [np.zeros((1, (n_iter))) for i in range(num_agents)] # Norm of difference between x_history and x_true
+x_history = [np.zeros((dim, (n_iter))) for i in range(num_agents)]          # Value of x at each iteration of algorithm
+x_norm_history = [np.zeros((1, (n_iter))) for i in range(num_agents)]       # Norm of difference between x_history and x_true
 p_est = [agents[i].get_estimated_pos() for i in range(num_agents)]          # Will be updated as algorithm loops and err vector is reconstructed
 p_hat = deepcopy(p_est)                                                     # CONSTANT: Reported positions of agents
 p_true = [agents[i].get_true_pos() for i in range(num_agents)]              # CONSTANT: True pos
@@ -165,8 +168,8 @@ print("Faulty Agent Vector:", fault_vec.T)
 
 
 ###     Looping             - SCP Outer Loop
-print("\nStarting Loop")
-for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
+print("\nLooping")
+for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
     new_measurement = measurements(p_hat, x_star)
     z       =   [(y[i] - meas) for i, meas in enumerate(new_measurement)]
     R       =   get_Jacobian_matrix(p_hat, x_star)
@@ -199,9 +202,12 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
                 
             prob1 = cp.Problem(cp.Minimize(objective), [])
             prob1.solve(verbose=show_prob1)
-            # assert prob1.status == cp.OPTIMAL, "Optimization problem not solved"
+            if prob1.status != cp.OPTIMAL:
+                print("\nERROR Problem 1: Optimization problem not solved @ (%d, %d, %d)" % (inner_i, outer_i, agent_id))
+            
             agent.x_bar = deepcopy(np.array(agent.x_cp.value).reshape((-1, 1)))
             new_x = deepcopy(agent.x_bar.flatten()) + x_star[agent_id].flatten()
+
             x_history[agent_id][:, inner_i + outer_i*n_scp] = new_x.flatten()
             x_norm_history[agent_id][:, inner_i + outer_i*n_scp] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
 
@@ -230,7 +236,9 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
                 
             prob2 = cp.Problem(cp.Minimize(objective), [])
             prob2.solve(verbose=show_prob2)
-            # assert prob2.status == cp.OPTIMAL, "Optimization problem not solved"
+            if prob2.status != cp.OPTIMAL:
+                print("\nERROR Problem 2: Optimization problem not solved @ (%d, %d, %d)" % (inner_i, outer_i, agent_id))
+
             for _, nbr_id in enumerate(agent.get_neighbors()):
                 agent.w[nbr_id] = deepcopy(np.array(agent.w_cp[nbr_id].value).reshape((-1, 1)))
 
@@ -281,26 +289,26 @@ for agent_id, agent in enumerate(agents):
     plt.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Before Reconstruction")
     plt.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="After Reconstruction")
     plt.scatter(p_true[agent_id][0], p_true[agent_id][1], marker='x', c='k', label="True")
-plt.legend(["Before", "After", "True"], loc='best')
+plt.legend(["With Inter-agent Measurements", "Without Inter-agent Measurements", "True Position"], loc='best', fontsize=5, markerscale=0.3)
 plt.grid(True)
 
 
+
+###     Plotting            - Error Convergence
 # Show convergence of estimated error vector to true error vector over time
 #TODO: This needs to be fixed.
-x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
-plt.figure()
-for agent_id, agent in enumerate(agents):
-    label_str = "Agent " + str(agent_id)
-    plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
-plt.title("Convergence of Error Vector")
-plt.xlabel("Iterations")
-plt.ylabel("||x* - x||")
-plt.ylim(left=0)
-plt.xlim((0, n_scp*n_admm))
-plt.legend(loc='best')
-plt.grid(True)
+# x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
+# plt.figure()
+# for agent_id, agent in enumerate(agents):
+#     label_str = "Agent " + str(agent_id)
+#     plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
+# plt.title("Convergence of Error Vector")
+# plt.xlabel("Iterations")
+# plt.ylabel("||x* - x||")
+# plt.xlim((0, n_scp*n_admm))
+# plt.legend(loc='best')
+# plt.grid(True)
 
-plt.show()
 
 
 ###     Plotting            - Animation
@@ -312,6 +320,57 @@ for id in range(num_agents):
         p_id[:,iter] = p_hat[id].flatten() + x_history[id][:, iter]
     p_hist.append(p_id)
 
+# Start figure
+fig, ax = plt.subplots(dpi=200)
+ax.set_title("Agent Estimated Position")
+ax.set_xlabel("x position")
+ax.set_ylabel("y position")
+scat_pos_est = [None] * num_agents # Position estimate during reconstruction
+scat_pos_hat = [None] * num_agents # Initial position estimate
+scat_pos_true = [None] * num_agents # True positions
+line_pos_est = [None] * len(edges) # Inter-agent communication
 
-fig, ax = plt.subplot()
+# Draw each agent's original estimated, current estimated, and true positions
+for agent_id, _ in enumerate(agents):
+    scat_pos_est[agent_id] = ax.scatter(p_hist[agent_id][0, 0], p_hist[agent_id][1, 0], marker='*', c='c', label="After", s=100)
+    scat_pos_hat[agent_id] = ax.scatter(p_hat[agent_id][0], p_hat[agent_id][1], facecolors='none', edgecolors='orangered', label="Before", s=100)
+    scat_pos_true[agent_id] = ax.scatter(p_true[agent_id][0], p_true[agent_id][1], marker='x', c='g', label="True", s=100)
 
+# Draw line for each edge of network
+for i, edge in enumerate(edges):
+    p1 = p_hist[edge[0]][:, 0]
+    p2 = p_hist[edge[1]][:, 0]
+    x = [p1[0], p2[0]]
+    y = [p1[1], p2[1]]
+    line_pos_est[i] = ax.plot(x, y, c='k', linewidth=1, alpha=0.5)[0]
+ax.legend(["With Inter-agent Measurements", "Without Inter-agent Measurements", "True Position"], loc='best', fontsize=6, markerscale=0.4)
+ax.grid(True)
+
+# Update function
+def update_pos_plot(frame):
+    updated_ax = []
+    # Draw each agent's original estimated, current estimated, and true positions
+    for agent_id, _ in enumerate(agents):
+        scat_pos_est[agent_id].set_offsets(p_hist[agent_id][:, frame])
+        # scat_pos_hat[agent_id].set_offsets(p_hat[agent_id][:, frame])
+        # scat_pos_true[agent_id].set_offsets(p_true[agent_id])
+        updated_ax.append(scat_pos_est[agent_id])
+    
+    # Draw line for each edge of network
+    for i, edge in enumerate(edges):
+        p1 = p_hist[edge[0]][:, frame]
+        p2 = p_hist[edge[1]][:, frame]
+        x = [p1[0], p2[0]]
+        y = [p1[1], p2[1]]
+        line_pos_est[i].set_xdata(x)
+        line_pos_est[i].set_ydata(y)
+        updated_ax.append(line_pos_est[i])
+
+# Call update function
+pos_ani = animation.FuncAnimation(fig=fig, func=update_pos_plot, frames=n_iter, interval=100)
+pos_ani.save(filename="pos2D_ani.gif", writer="pillow")
+
+
+
+###     Plotting            - Show Plots
+plt.show()
