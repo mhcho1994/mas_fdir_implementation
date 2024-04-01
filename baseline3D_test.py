@@ -31,7 +31,7 @@ from iam_models import distance
 
 ###     Initializations     - Scalars
 dim             =   3   # 2 or 3
-num_agents      =   6
+num_agents      =   7
 num_faulty      =   1   # must be << num_agents for sparse error assumption
 n_scp           =   10  # Number of SCP iterations
 n_admm          =   10  # Number of ADMM iterations
@@ -39,26 +39,31 @@ n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 
+
+
 ###     Initializations     - Agents
 # 5 agents making up square pyramid, 1 agents at center of square
 agents      =   [None] * num_agents
-d           =   6   # square side length
+d           =   10      # square side length
 agents[0]   =   Agent(agent_id= 0,
-                      init_position= np.array([[0, 0, d]]).T)
+                      init_position= np.array([[0, 0, d]]).T) #np.array([[0, 0, d]]).T)
 agents[1]   =   Agent(agent_id= 1,
-                      init_position= np.array([[d/2, d/2, 0]]).T)
+                      init_position= np.array([[d/3, d/2, d/4]]).T) #np.array([[d/2, d/2, 0]]).T)
 agents[2]   =   Agent(agent_id= 2,
-                      init_position= np.array([[d/2, -d/2, 0]]).T)
+                      init_position= np.array([[d/5, -d/2, 0]]).T) #np.array([[d/2, -d/2, 0]]).T)
 agents[3]   =   Agent(agent_id= 3,
-                      init_position= np.array([[-d/2, -d/2, 0]]).T)
+                      init_position= np.array([[-d/3, -d, d/5]]).T) #np.array([[-d/2, -d/2, 0]]).T)
 agents[4]   =   Agent(agent_id= 4,
-                      init_position= np.array([[-d/2, d/2, 0]]).T)
+                      init_position= np.array([[-d/4, d/2, -d/4]]).T) #np.array([[-d/2, d/2, 0]]).T)
 agents[5]   =   Agent(agent_id= 5,
-                      init_position= np.array([[0, 0, 0]]).T)
+                      init_position= np.array([[0, 0, 0]]).T) #np.array([[0, 0, 0]]).T)
+agents[6]   =   Agent(agent_id= 6,
+                      init_position= np.array([[0, 0, -2*d]]).T) #np.array([[0, 0, -d]]).T)
+
 
 # Add error vector
-faulty_id   =   2*np.random.randint(0, high=num_agents/2) + 1
-fault_vec   =   0.6*np.random.rand(dim, 1)
+faulty_id   =   1 # np.random.randint(0, high=num_agents)
+fault_vec   =   np.array([[0.0, 0, 0]]).T # 0.5*np.random.rand(dim, 1) # 
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
@@ -68,12 +73,19 @@ for id, agent in enumerate(agents):
 
 
 # Set Neighbors
-edges                   = [[0,1], [1,2], [2,3], 
-                           [3,4], [4,5], [5,0],
-                           [1,5], [1,3], [3,5],
-                           [1,0], [2,1], [3,2], 
-                           [4,3], [5,4], [0,5],
-                           [5,1], [3,1], [5,3]] # these edges are directed
+edges                   = [[0,1], [0,2], [0,3],
+                           [0,4], [0,5], [1,2],
+                           [1,4], [1,5], [1,6],
+                           [2,3], [2,5], [2,6],
+                           [3,4], [3,5], [3,6], 
+                           [4,5], [4,6], [5,6],
+
+                           [1,0], [2,0], [3,0],
+                           [4,0], [5,0], [2,1],
+                           [4,1], [5,1], [6,1],
+                           [3,2], [5,2], [6,2],
+                           [4,3], [5,3], [6,3],
+                           [5,4], [6,4], [6,5]] # these edges are directed
 for agent_id, agent in enumerate(agents):
     # Neighbor List
     nbr_list        =   []
@@ -88,17 +100,14 @@ for agent_id, agent in enumerate(agents):
     agent.set_edge_indices(edge_list)
 
 
+
 ###     Useful Functions
 # Measurement function Phi
 def measurements(p, x_hat):
     measurements = []
 
     for edge in edges:
-        # disp    = ((p[edge[1]] + x_hat[edge[1]]) - 
-                #    (p[edge[0]] + x_hat[edge[0]]))
-        # print(disp)
         dist = distance((p[edge[0]] + x_hat[edge[0]]), (p[edge[1]] + x_hat[edge[1]]))
-        # print(dist)
         measurements.append(dist)
 
     return measurements
@@ -127,14 +136,16 @@ def get_Jacobian_matrix(p, x):
     return R
 
 
+
 ###     Initializations     - Measurements and Positions
 x_star = [np.zeros((dim, 1)) for i in range(num_agents)]                    # Equivalent to last element in x_history (below)
-x_history = [np.zeros((dim, (n_iter))) for i in range(num_agents)]    # Value of x at each iteration of algorithm
-x_norm_history = [np.zeros((1, (n_iter))) for i in range(num_agents)] # Norm of difference between x_history and x_true
+x_history = [np.zeros((dim, (n_iter))) for i in range(num_agents)]          # Value of x at each iteration of algorithm
+x_norm_history = [np.zeros((1, (n_iter))) for i in range(num_agents)]       # Norm of difference between x_history and x_true
 p_est = [agents[i].get_estimated_pos() for i in range(num_agents)]          # Will be updated as algorithm loops and err vector is reconstructed
 p_hat = deepcopy(p_est)                                                     # CONSTANT: Reported positions of agents
 p_true = [agents[i].get_true_pos() for i in range(num_agents)]              # CONSTANT: True pos
 y = measurements(p_true, x_star)                                            # CONSTANT: Phi(p_hat + x_hat), true interagent measurement
+
 
 
 ###      Initializations    - Optimization Parameters
@@ -199,9 +210,12 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
                 
             prob1 = cp.Problem(cp.Minimize(objective), [])
             prob1.solve(verbose=show_prob1)
-            # assert prob1.status == cp.OPTIMAL, "Optimization problem not solved"
+            if prob1.status != cp.OPTIMAL:
+                print("\nERROR Problem 1: Optimization problem not solved @ (%d, %d, %d)" % (inner_i, outer_i, agent_id))
+
             agent.x_bar = deepcopy(np.array(agent.x_cp.value).reshape((-1, 1)))
             new_x = deepcopy(agent.x_bar.flatten()) + x_star[agent_id].flatten()
+
             x_history[agent_id][:, inner_i + outer_i*n_scp] = new_x.flatten()
             x_norm_history[agent_id][:, inner_i + outer_i*n_scp] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
 
@@ -230,7 +244,9 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
                 
             prob2 = cp.Problem(cp.Minimize(objective), [])
             prob2.solve(verbose=show_prob2)
-            # assert prob2.status == cp.OPTIMAL, "Optimization problem not solved"
+            if prob2.status != cp.OPTIMAL:
+                print("\nERROR Problem 2: Optimization problem not solved @ (%d, %d, %d)" % (inner_i, outer_i, agent_id))
+
             for _, nbr_id in enumerate(agent.get_neighbors()):
                 agent.w[nbr_id] = deepcopy(np.array(agent.w_cp[nbr_id].value).reshape((-1, 1)))
 
@@ -273,35 +289,47 @@ print("\nPlotting")
 print()
 
 # Compare position estimates before and after reconstruction
-fig1 = plt.figure()
+fig1 = plt.figure(dpi=200)
 ax1 = fig1.add_subplot(projection='3d')
 ax1.set_title("Agent Position Estimates")
 ax1.set_xlabel("x")
 ax1.set_ylabel("y")
-for agent_id, agent in enumerate(agents):
-    ax1.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Before Reconstruction")
-    ax1.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="After Reconstruction")
-    ax1.scatter(p_true[agent_id][0], p_true[agent_id][1], marker='x', c='k', label="True")
-plt.legend(["Before", "After", "True"], loc='best')
+
+for agent_id, agent in enumerate(agents): # Draw points
+    ax1.scatter(p_est[agent_id][0], p_est[agent_id][1], p_est[agent_id][2], marker='*', c='m', label="After", s=100)
+    ax1.scatter(p_hat[agent_id][0], p_hat[agent_id][1], p_hat[agent_id][2], facecolors='none', edgecolors='orangered', label="Before", s=100)
+    ax1.scatter(p_true[agent_id][0], p_true[agent_id][1], p_true[agent_id][2], marker='x', c='g', label="True", s=100)
+    #TODO: Fix labels on plot
+    # ax1.text(p_true[agent_id][0], p_true[agent_id][1], p_true[agent_id][2], '%s' % (str(agent_id)))
+
+for i, edge in enumerate(edges): # Draw edges
+    p1 = p_est[edge[0]]
+    p2 = p_est[edge[1]]
+    x = [p1[0], p2[0]]
+    y = [p1[1], p2[1]]
+    z = [p1[2], p2[2]]
+    ax1.plot(x, y, z, c='k', linewidth=1, alpha=0.5)[0]
+plt.legend(["With Inter-agent Measurements", "Without Inter-agent Measurements", "True Position"], loc='best', fontsize=6, markerscale=0.4)
 plt.grid(True)
 
 
+
+###     Plotting            - Error Convergence
 # Show convergence of estimated error vector to true error vector over time
 #TODO: This needs to be fixed.
-x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
-plt.figure()
-for agent_id, agent in enumerate(agents):
-    label_str = "Agent " + str(agent_id)
-    plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
-plt.title("Convergence of Error Vector")
-plt.xlabel("Iterations")
-plt.ylabel("||x* - x||")
-plt.ylim(left=0)
-plt.xlim((0, n_scp*n_admm))
-plt.legend(loc='best')
-plt.grid(True)
+# x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
+# plt.figure()
+# for agent_id, agent in enumerate(agents):
+#     label_str = "Agent " + str(agent_id)
+#     plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
+# plt.title("Convergence of Error Vector")
+# plt.xlabel("Iterations")
+# plt.ylabel("||x* - x||")
+# # plt.ylim(left=0)
+# plt.xlim((0, n_scp*n_admm))
+# plt.legend(loc='best')
+# plt.grid(True)
 
-plt.show()
 
 
 ###     Plotting            - Animation
@@ -313,6 +341,10 @@ for id in range(num_agents):
         p_id[:,iter] = p_hat[id].flatten() + x_history[id][:, iter]
     p_hist.append(p_id)
 
+#TODO: Add animation
+# fig, ax = plt.subplots()
 
-fig, ax = plt.subplot()
 
+
+###     Plotting            - Show Plots
+plt.show()
