@@ -19,10 +19,11 @@ Description:
 import numpy as np
 import cvxpy as cp
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 from copy import deepcopy
+from datetime import datetime
 from tqdm import tqdm
-from matplotlib import animation
 
 ###     Imports             - User-Defined Files
 from generic_agent import GenericAgent as Agent
@@ -59,7 +60,7 @@ agents[5]   =   Agent(agent_id= 5,
 
 # Add error vector
 faulty_id = np.random.randint(0, high=num_agents)
-fault_vec = 0.5*np.random.rand(dim, 1)
+fault_vec = 3*np.random.rand(dim, 1)
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
@@ -114,12 +115,14 @@ def get_Jacobian_row(edge_ind, p, x):
     edge = edges[edge_ind]
     agent1_id = edge[0]
     agent2_id = edge[1]
-    disp    = ((p[edge[1]] + x[edge[1]]) - 
-               (p[edge[0]] + x[edge[0]]))
+    pos1 = p[edge[1]] + x[edge[1]]
+    pos2 = p[edge[0]] + x[edge[0]]
+    disp    = (pos1 - pos2)
     R_k = np.zeros((1, dim*num_agents))
 
-    R_k[:, dim*agent2_id:dim*(agent2_id + 1)] = disp.T
-    R_k[:, dim*agent1_id:dim*(agent1_id + 1)] = -disp.T
+    dist = distance(pos1, pos2)
+    R_k[:, dim*agent2_id:dim*(agent2_id + 1)] = disp.T  / dist
+    R_k[:, dim*agent1_id:dim*(agent1_id + 1)] = -disp.T / dist
 
     return R_k
 
@@ -368,10 +371,14 @@ def update_pos_plot(frame):
         line_pos_est[i].set_xdata(x)
         line_pos_est[i].set_ydata(y)
         updated_ax.append(line_pos_est[i])
+        
+    return updated_ax
 
 # Call update function
 pos_ani = animation.FuncAnimation(fig=fig, func=update_pos_plot, frames=n_iter, interval=100)
-pos_ani.save(filename="pos2D_ani.gif", writer="pillow")
+dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+fname = "fig/2D-Hexagon/pos2D-Hexagon_ani_" + dt_string + ".gif"
+pos_ani.save(filename=fname, writer="pillow")
 
 
 
