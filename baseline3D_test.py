@@ -19,8 +19,11 @@ Description:
 import numpy as np
 import cvxpy as cp
 import matplotlib.pyplot as plt
+import mpl_toolkits.mplot3d.axes3d as p3
+import matplotlib.animation as animation
 
 from copy import deepcopy
+from datetime import datetime
 from tqdm import tqdm
 
 ###     Imports             - User-Defined Files
@@ -62,8 +65,8 @@ agents[6]   =   Agent(agent_id= 6,
 
 
 # Add error vector
-faulty_id   =   1 # np.random.randint(0, high=num_agents)
-fault_vec   =   np.array([[0.0, 0, 0]]).T # 0.5*np.random.rand(dim, 1) # 
+faulty_id   =   np.random.randint(0, high=num_agents)
+fault_vec   =   2*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
@@ -117,12 +120,14 @@ def get_Jacobian_row(edge_ind, p, x):
     edge = edges[edge_ind]
     agent1_id = edge[0]
     agent2_id = edge[1]
-    disp    = ((p[edge[1]] + x[edge[1]]) - 
-               (p[edge[0]] + x[edge[0]]))
+    pos1 = p[edge[1]] + x[edge[1]]
+    pos2 = p[edge[0]] + x[edge[0]]
+    disp    = (pos1 - pos2)
     R_k = np.zeros((1, dim*num_agents))
 
-    R_k[:, dim*agent2_id:dim*(agent2_id + 1)] = disp.T
-    R_k[:, dim*agent1_id:dim*(agent1_id + 1)] = -disp.T
+    dist = distance(pos1, pos2)
+    R_k[:, dim*agent2_id:dim*(agent2_id + 1)] = disp.T  / dist
+    R_k[:, dim*agent1_id:dim*(agent1_id + 1)] = -disp.T / dist
 
     return R_k
 
@@ -294,6 +299,7 @@ ax1 = fig1.add_subplot(projection='3d')
 ax1.set_title("Agent Position Estimates")
 ax1.set_xlabel("x")
 ax1.set_ylabel("y")
+ax1.set_zlabel("z")
 
 for agent_id, agent in enumerate(agents): # Draw points
     ax1.scatter(p_est[agent_id][0], p_est[agent_id][1], p_est[agent_id][2], marker='*', c='m', label="After", s=100)
@@ -341,8 +347,70 @@ for id in range(num_agents):
         p_id[:,iter] = p_hat[id].flatten() + x_history[id][:, iter]
     p_hist.append(p_id)
 
-#TODO: Add animation
-# fig, ax = plt.subplots()
+# Start figure
+fig2 = plt.figure(dpi=200)
+ax2 = fig2.add_subplot(projection='3d')
+ax2.set_title("Agent Estimated Position")
+ax2.set_xlabel("x position")
+ax2.set_ylabel("y position")
+ax2.set_zlabel("z position")
+scat_pos_est = [None] * num_agents # Position estimate during reconstruction
+scat_pos_hat = [None] * num_agents # Initial position estimate
+scat_pos_true = [None] * num_agents # True positions
+line_pos_est = [None] * len(edges) # Inter-agent communication
+
+# Draw each agent's original estimated, current estimated, and true positions
+for agent_id, _ in enumerate(agents):
+    scat_pos_est[agent_id] = ax2.plot(p_hist[agent_id][0, 0], p_hist[agent_id][1, 0], p_hist[agent_id][2, 0], 
+                                        marker='*', c='c', linestyle='None', label="After", markersize=10)[0]
+    scat_pos_hat[agent_id] = ax2.plot(p_hat[agent_id][0], p_hat[agent_id][1], p_hat[agent_id][2], 
+                                        marker='o', markerfacecolor='none', c='orangered', linestyle='None', label="Before", markersize=10)[0]
+    scat_pos_true[agent_id] = ax2.plot(p_true[agent_id][0], p_true[agent_id][1], p_true[agent_id][2], 
+                                        marker='x', c='g', linestyle='None', label="True", markersize=10)[0]
+
+# Draw line for each edge of network
+for i, edge in enumerate(edges):
+    p1 = p_hist[edge[0]][:, 0]
+    p2 = p_hist[edge[1]][:, 0]
+    x = [p1[0], p2[0]]
+    y = [p1[1], p2[1]]
+    z = [p1[2], p2[2]]
+    line_pos_est[i] = ax2.plot(x, y, z, c='k', linewidth=1, alpha=0.5)[0]
+ax2.legend(["With Inter-agent Measurements", "Without Inter-agent Measurements", "True Position"], loc='best', fontsize=6, markerscale=0.4)
+ax2.grid(True)
+
+# Update function
+def update_pos_plot(frame):
+    updated_ax = []
+    # Draw each agent's original estimated, current estimated, and true positions
+    for agent_id, _ in enumerate(agents):
+        new_pos = (float(p_hist[agent_id][0, frame]), float(p_hist[agent_id][1, frame]), float(p_hist[agent_id][2, frame]))
+
+        scat_pos_est[agent_id].set_data([new_pos[0]], [new_pos[1]])
+        scat_pos_est[agent_id].set_3d_properties([new_pos[2]])
+
+        updated_ax.append(scat_pos_est[agent_id])
+    
+    # Draw line for each edge of network
+    for i, edge in enumerate(edges):
+        p1 = p_hist[edge[0]][:, frame]
+        p2 = p_hist[edge[1]][:, frame]
+        x = [p1[0], p2[0]]
+        y = [p1[1], p2[1]]
+        z = [p1[2], p2[2]]
+
+        line_pos_est[i].set_data(x, y)
+        line_pos_est[i].set_3d_properties(z)
+
+        updated_ax.append(line_pos_est[i])
+    
+    return updated_ax
+    
+# Call update function
+pos_ani = animation.FuncAnimation(fig=fig2, func=update_pos_plot, frames=n_iter, interval=100, blit=False, repeat=True)
+dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+fname = "fig/3D/pos3D_ani_" + dt_string + ".gif"
+pos_ani.save(filename=fname, writer="pillow")
 
 
 
