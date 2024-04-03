@@ -49,24 +49,24 @@ show_prob2      =   False
 agents      =   [None] * num_agents
 d           =   10      # square side length
 agents[0]   =   Agent(agent_id= 0,
-                      init_position= np.array([[0, 0, d]]).T) #np.array([[0, 0, d]]).T)
+                      init_position= np.array([[0, 0, d]]).T) #np.array([[0, 0, d]]).T) #
 agents[1]   =   Agent(agent_id= 1,
-                      init_position= np.array([[d/3, d/2, d/4]]).T) #np.array([[d/2, d/2, 0]]).T)
+                      init_position= np.array([[d/3, d/2, d/4]]).T) #np.array([[d/2, d/2, 0]]).T) #
 agents[2]   =   Agent(agent_id= 2,
-                      init_position= np.array([[d/5, -d/2, 0]]).T) #np.array([[d/2, -d/2, 0]]).T)
+                      init_position= np.array([[d/5, -d/2, 0]]).T) #np.array([[d/2, -d/2, 0]]).T) #
 agents[3]   =   Agent(agent_id= 3,
-                      init_position= np.array([[-d/3, -d, d/5]]).T) #np.array([[-d/2, -d/2, 0]]).T)
+                      init_position= np.array([[-d/3, -d, d/5]]).T) #np.array([[-d/2, -d/2, 0]]).T) #
 agents[4]   =   Agent(agent_id= 4,
-                      init_position= np.array([[-d/4, d/2, -d/4]]).T) #np.array([[-d/2, d/2, 0]]).T)
+                      init_position= np.array([[-d/4, d/2, -d/4]]).T) #np.array([[-d/2, d/2, 0]]).T) #
 agents[5]   =   Agent(agent_id= 5,
-                      init_position= np.array([[0, 0, 0]]).T) #np.array([[0, 0, 0]]).T)
+                      init_position= np.array([[0, 0, 0]]).T) #np.array([[0, 0, 0]]).T) #
 agents[6]   =   Agent(agent_id= 6,
-                      init_position= np.array([[0, 0, -2*d]]).T) #np.array([[0, 0, -d]]).T)
+                      init_position= np.array([[0, 0, -2*d]]).T) #np.array([[0, 0, -d]]).T) #
 
 
 # Add error vector
 faulty_id   =   np.random.randint(0, high=num_agents)
-fault_vec   =   2*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
+fault_vec   =   3*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
