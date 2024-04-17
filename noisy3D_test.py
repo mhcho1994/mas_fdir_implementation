@@ -47,7 +47,7 @@ show_prob2      =   False
 ###     Initializations     - Agents
 # 5 agents making up square pyramid, 1 agents at center of square
 agents      =   [None] * num_agents
-d           =   10      # square side length
+d           =   5      # square side length
 agents[0]   =   Agent(agent_id= 0,
                       init_position= np.array([[0, 0, d]]).T) #np.array([[0, 0, d]]).T) #
 agents[1]   =   Agent(agent_id= 1,
@@ -194,13 +194,17 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
     ###     Looping             - ADMM Inner Loop
     for inner_i in tqdm(range(n_admm), desc="ADMM Loop", leave=False):
 
+        ##      Noise               - Add noise to interagent measurements (and therefore z)
+        z_noise = [(z[i] + np.random.normal(scale=0.1)) for i, _ in enumerate(z)]
+
+
         ##      Minimization        - Primal Variable 1
         for agent_id, agent in enumerate(agents):
             objective = cp.norm(agent.x_star[agent_id] + agent.x_cp)
             
             # Summation for c() constraint
             for _, edge_ind in enumerate(agent.get_edge_indices()): 
-                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_cp - z[edge_ind]
+                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_cp - z_noise[edge_ind]
                 for nbr_id in agent.get_neighbors():
                     constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[agent_id]
                 
@@ -234,7 +238,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
 
             # Summation for c() constraint
             for edge_ind in agent.get_edge_indices(): 
-                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_bar - z[edge_ind]
+                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_bar - z_noise[edge_ind]
                 for nbr_id in agent.get_neighbors():
                     constr_c = constr_c + R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w_cp[agent_id]
                 
@@ -261,7 +265,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
             
             # Summation for c() constraint
             for _, edge_ind in enumerate(agent.get_edge_indices()):
-                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_bar - z[edge_ind]
+                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_bar - z_noise[edge_ind]
                 for nbr_id in agent.get_neighbors():
                     constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[agent_id]
                 
@@ -409,7 +413,7 @@ def update_pos_plot(frame):
 # Call update function
 pos_ani = animation.FuncAnimation(fig=fig2, func=update_pos_plot, frames=n_iter, interval=100, blit=False, repeat=True)
 dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-fname = "fig/3D/pos3D_ani_" + dt_string + ".gif"
+fname = "fig/3D-Noisy/pos3D_ani_" + dt_string + ".gif"
 pos_ani.save(filename=fname, writer="pillow")
 
 
