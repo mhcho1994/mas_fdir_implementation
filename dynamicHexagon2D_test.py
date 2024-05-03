@@ -62,7 +62,7 @@ agents[5]   =   Agent(agent_id= 5,
 # Add error vector
 agent_speed = 0.1
 faulty_id = np.random.randint(0, high=num_agents)
-fault_vec = agent_speed*(np.random.rand(dim, 1) - 0.5)
+fault_vec = agent_speed*2*(np.random.rand(dim, 1) - 0.5)
 
 
 x_true = []
@@ -156,7 +156,7 @@ y = meas_model(p_hat, x_star)                                             # CONS
 
 
 ###      Initializations    - Optimization Parameters
-rho = 1.0
+rho = 5
 total_iterations = np.arange((n_iter))
 for agent_id, agent in enumerate(agents):
     num_edges       = len(agent.get_edge_indices())
@@ -201,38 +201,60 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
         z = [(y[i] - meas) for i, meas in enumerate(exp_meas)]
 
         ##      Minimization        - Primal Variable 1
-        for agent_id, agent in enumerate(agents):
-            objective = cp.norm(agent.x_star[agent_id] + agent.x_cp)
-            
-            # Summation for c() constraint
-            for _, edge_ind in enumerate(agent.get_edge_indices()): 
-                constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_cp - z[edge_ind]
+        for id, agent in enumerate(agents):
+            # Thresholding: Summation over edges
+            term1 = 0
+            for i, edge_ind in enumerate(agent.get_edge_indices()):
+                R_k = R[edge_ind]
+                constr_c = R_k[:, dim*id:dim*(id+1)] @ (-agent.x_star[id]) - z[edge_ind]
                 for nbr_id in agent.get_neighbors():
-                    constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[agent_id]
+                    constr_c += R_k[:, dim*nbr_id:dim*(nbr_id+1)] @ agent.w[nbr_id]
                 
-                objective += ((rho/2)*cp.power(cp.norm(constr_c), 2)
-                                + agent.lam[edge_ind].T @ (constr_c))
-            
-            # Summation for d() constraint
-            for _, nbr_id in enumerate(agent.get_neighbors()): 
-                constr_d = agent.x_cp - agent.w[nbr_id]
-                objective += ((rho/2)*cp.power(cp.norm(constr_d), 2)
-                              + agent.mu[nbr_id].T @ (constr_d))
-                
-            prob1 = cp.Problem(cp.Minimize(objective), [])
-            prob1.solve(verbose=show_prob1)
-            if prob1.status != cp.OPTIMAL:
-                print("\nERROR Problem 1: Optimization problem not solved @ (%d, %d, %d)" % (inner_i, outer_i, agent_id))
-            
-            agent.x_bar = deepcopy(np.array(agent.x_cp.value).reshape((-1, 1)))
-            new_x = deepcopy(agent.x_bar.flatten()) + x_star[agent_id].flatten()
+                term1 += R_k[:, dim*id:dim*(id+1)].T @ (constr_c + (agent.lam[edge_ind] / rho))
 
+            # Thresholding: Summation over neighbors
+            term2 = 0
+            for nbr_id in agent.get_neighbors():
+                constr_d = -agent.x_star[id] - agent.w[nbr_id]
+                term2 += constr_d + (agent.mu[nbr_id] / rho)
+
+            # Tresholding: Check threshold
+            threshold_lhs = np.linalg.norm(term1 + term2)
+            if (threshold_lhs*rho) <= 1:
+                agent.x_bar = deepcopy(-agent.x_star[id])
+            else:
+            # Optimization: Find x_bar if over threshold
+                objective = cp.norm(agent.x_star[id] + agent.x_cp)
+                
+                # Summation for c() constraint
+                for _, edge_ind in enumerate(agent.get_edge_indices()): 
+                    constr_c = R[edge_ind][:, dim*id:dim*(id+1)] @ agent.x_cp - z[edge_ind]
+                    for nbr_id in agent.get_neighbors():
+                        constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[id]
+                    
+                    objective += ((rho/2)*cp.power(cp.norm(constr_c), 2)
+                                    + agent.lam[edge_ind].T @ (constr_c))
+                
+                # Summation for d() constraint
+                for _, nbr_id in enumerate(agent.get_neighbors()): 
+                    constr_d = agent.x_cp - agent.w[nbr_id]
+                    objective += ((rho/2)*cp.power(cp.norm(constr_d), 2)
+                                + agent.mu[nbr_id].T @ (constr_d))
+                    
+                prob1 = cp.Problem(cp.Minimize(objective), [])
+                prob1.solve(verbose=show_prob1)
+                if prob1.status != cp.OPTIMAL:
+                    print("\nERROR Problem 1: Optimization problem not solved @ (%d, %d, %d)" % (inner_i, outer_i, id))
+                
+                agent.x_bar = deepcopy(np.array(agent.x_cp.value).reshape((-1, 1)))
+            
+            # Store: Reconstructed Error
+            new_x = deepcopy(agent.x_bar.flatten()) + deepcopy(x_star[agent_id].flatten())
             x_history[agent_id][:, inner_i + outer_i*n_admm] = new_x.flatten()
+
+            # Store: Convergence of Reconstructed Error Vector
             x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
 
-        ##      Minimization        - Thresholding Parameter
-        # TODO: Implement
-        # Used for identifying faults, not pressing issue
 
         ##      Minimization        - Primal Variable 2
         for agent_id, agent in enumerate(agents):
@@ -278,9 +300,12 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
                 constr_d = agent.x_bar - agent.w[nbr_id]
                 agent.mu[nbr_id] = deepcopy(agent.mu[nbr_id] + rho * constr_d)
 
-        ##      Store          - Position Vector
-        for id, _ in enumerate(agents):
+
+        ##      Store           - Position and Error Vectors
+        for id, agent in enumerate(agents):
+            # True Position
             true_pos_history[id][:, inner_i + outer_i*n_admm] = p[id].flatten()
+    
                 
 
     ###     END Looping         - ADMM Inner Loop
@@ -339,10 +364,10 @@ plt.grid(True)
 # Create position estimate over time data
 p_hist = []
 for id in range(num_agents):
-    p_id = np.zeros((dim, n_iter))
+    this_pos = np.zeros((dim, n_iter))
     for iter in range(n_iter):
-        p_id[:,iter] = p_hat[id].flatten() + x_history[id][:, iter]
-    p_hist.append(p_id)
+        this_pos[:,iter] = p_hat[id].flatten() + x_history[id][:, iter]
+    p_hist.append(this_pos)
 
 # Start figure
 fig, ax = plt.subplots(dpi=200)
