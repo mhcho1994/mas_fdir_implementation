@@ -156,7 +156,7 @@ y = meas_model(p_hat, x_star)                                             # CONS
 
 
 ###      Initializations    - Optimization Parameters
-rho = 5
+rho = 1
 total_iterations = np.arange((n_iter))
 for agent_id, agent in enumerate(agents):
     num_edges       = len(agent.get_edge_indices())
@@ -250,7 +250,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
             
             # Store: Reconstructed Error
             new_x = deepcopy(agent.x_bar.flatten()) + deepcopy(x_star[agent_id].flatten())
-            x_history[agent_id][:, inner_i + outer_i*n_admm] = new_x.flatten()
+            x_history[agent_id][:, inner_i + outer_i*n_admm] = deepcopy(new_x.flatten())
 
             # Store: Convergence of Reconstructed Error Vector
             x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
@@ -304,7 +304,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
         ##      Store           - Position and Error Vectors
         for id, agent in enumerate(agents):
             # True Position
-            true_pos_history[id][:, inner_i + outer_i*n_admm] = p[id].flatten()
+            true_pos_history[id][:, inner_i + outer_i*n_admm] = deepcopy(p[id].flatten())
     
                 
 
@@ -383,7 +383,7 @@ line_pos_est = [None] * len(edges) # Inter-agent communication
 for agent_id, _ in enumerate(agents):
     scat_pos_est[agent_id] = ax.scatter(p_hist[agent_id][0, 0], p_hist[agent_id][1, 0], marker='*', c='c', label="After", s=100)
     scat_pos_hat[agent_id] = ax.scatter(p_hat[agent_id][0], p_hat[agent_id][1], facecolors='none', edgecolors='orangered', label="Before", s=100)
-    scat_pos_true[agent_id] = ax.scatter(true_pos_history[agent_id][:, 0], true_pos_history[agent_id][:, 1], marker='x', c='g', label="True", s=100)
+    scat_pos_true[agent_id] = ax.scatter(true_pos_history[agent_id][0, 0], true_pos_history[agent_id][1, 0], marker='x', c='g', label="True", s=100)
 
 # Draw line for each edge of network
 for i, edge in enumerate(edges):

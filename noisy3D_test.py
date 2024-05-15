@@ -66,7 +66,7 @@ agents[6]   =   Agent(agent_id= 6,
 
 # Add error vector
 faulty_id   =   np.random.randint(0, high=num_agents)
-fault_vec   =   3*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
+fault_vec   =   1*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
@@ -150,6 +150,7 @@ p_est = [agents[i].get_estimated_pos() for i in range(num_agents)]          # Wi
 p_hat = deepcopy(p_est)                                                     # CONSTANT: Reported positions of agents
 p_true = [agents[i].get_true_pos() for i in range(num_agents)]              # CONSTANT: True pos
 y = measurements(p_true, x_star)                                            # CONSTANT: Phi(p_hat + x_hat), true interagent measurement
+residuals = [np.zeros(n_iter) for i in range(num_agents)]                   # Running residuals of each agent (residual <= 1 is nominal)
 
 
 
@@ -195,7 +196,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
     for inner_i in tqdm(range(n_admm), desc="ADMM Loop", leave=False):
 
         ##      Noise               - Add noise to interagent measurements (and therefore z)
-        z_noise = [(z[i] + np.random.normal(scale=0.1)) for i, _ in enumerate(z)]
+        z_noise = [(z[i] + np.random.normal(scale=0.0)) for i, _ in enumerate(z)]
 
 
         ##      Minimization        - Primal Variable 1
@@ -217,8 +218,9 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
                 term2 += constr_d + (agent.mu[nbr_id] / rho)
 
             # Tresholding: Check threshold
-            threshold_lhs = np.linalg.norm(term1 + term2)
-            if (threshold_lhs*rho) <= 1:
+            res = np.linalg.norm(term1 + term2)
+            residuals[id][inner_i + outer_i*n_admm] = res
+            if (res*rho) <= 1:
                 agent.x_bar = deepcopy(-agent.x_star[id])
             else:
             # Optimization: Find x_bar if over threshold
@@ -439,6 +441,23 @@ pos_ani = animation.FuncAnimation(fig=fig2, func=update_pos_plot, frames=n_iter,
 dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 fname = "fig/3D-Noisy/pos3D_ani_" + dt_string + ".gif"
 pos_ani.save(filename=fname, writer="pillow")
+
+
+###     Plotting            - Residuals and Threshold
+
+# Start figure
+fig2, ax2 = plt.subplots(dpi=200)
+ax2.set_title("Residual monitor")
+ax2.set_xlabel("Iteration")
+ax2.set_ylabel("Residual")
+
+# Plot residuals of each agent
+for id, this_res_hist in enumerate(residuals):
+    ax2.plot(np.arange(n_iter), this_res_hist, label=f"Agent {id}")
+ax2.plot(range(n_iter), [1/rho]*n_iter, label=f"Threshold")
+ax2.legend(loc='best')
+ax2.set_ylim(bottom=0, top=10)
+ax2.grid(True)
 
 
 
