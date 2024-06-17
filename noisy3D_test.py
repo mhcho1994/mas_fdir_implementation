@@ -37,10 +37,14 @@ dim             =   3   # 2 or 3
 num_agents      =   7
 num_faulty      =   1   # must be << num_agents for sparse error assumption
 n_scp           =   10  # Number of SCP iterations
-n_admm          =   20  # Number of ADMM iterations
+n_admm          =   10  # Number of ADMM iterations
 n_iter          =   n_admm * n_scp
+iam_noise       =   0.02
+pos_noise       =   0.02
 show_prob1      =   False
 show_prob2      =   False
+rho             =   0.1
+use_threshold   =   False
 
 
 
@@ -65,8 +69,8 @@ agents[6]   =   Agent(agent_id= 6,
 
 
 # Add error vector
-faulty_id   =   np.random.randint(0, high=num_agents)
-fault_vec   =   1*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
+faulty_id   =   3 #np.random.randint(0, high=num_agents)
+fault_vec   =   np.array([[1.145, 1.287, 0.745]]).T #2*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
@@ -155,7 +159,6 @@ residuals = [np.zeros(n_iter) for i in range(num_agents)]                   # Ru
 
 
 ###      Initializations    - Optimization Parameters
-rho = 1.0
 total_iterations = np.arange((n_iter))
 for agent_id, agent in enumerate(agents):
     num_edges       = len(agent.get_edge_indices())
@@ -181,12 +184,22 @@ print("Faulty Agent ID:", faulty_id)
 print("Faulty Agent Vector:", fault_vec.T)
 
 
+### Store stuff
+lam_norm_history = [np.zeros((len(agents[i].get_edge_indices()), n_iter)) for i in range(num_agents)]
+mu_norm_history = [np.zeros((len(agents[i].get_neighbors()), n_iter)) for i in range(num_agents)]
+sum_err_rmse = 0.0
+
 ###     Looping             - SCP Outer Loop
 print("\nStarting Loop")
-for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
-    new_measurement = measurements(p_hat, x_star)
+for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
+    # Noise in Position Estimate
+    p_hat_noise = deepcopy(p_hat)
+    for i, _ in enumerate(p_hat_noise):
+        p_hat_noise[i] = p_hat[i] + np.random.normal(scale=pos_noise, size=(dim, 1))
+
+    new_measurement = measurements(p_hat_noise, x_star)
     z       =   [(y[i] - meas) for i, meas in enumerate(new_measurement)]
-    R       =   get_Jacobian_matrix(p_hat, x_star)
+    R       =   get_Jacobian_matrix(p_hat_noise, x_star)
 
     for agent in agents:
         agent.init_w(np.zeros((dim, 1)), agent.get_neighbors())
@@ -196,7 +209,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
     for inner_i in tqdm(range(n_admm), desc="ADMM Loop", leave=False):
 
         ##      Noise               - Add noise to interagent measurements (and therefore z)
-        z_noise = [(z[i] + np.random.normal(scale=0.0)) for i, _ in enumerate(z)]
+        z_noise = [(z[i] + np.random.normal(scale=iam_noise)) for i, _ in enumerate(z)]
 
 
         ##      Minimization        - Primal Variable 1
@@ -220,7 +233,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
             # Tresholding: Check threshold
             res = np.linalg.norm(term1 + term2)
             residuals[id][inner_i + outer_i*n_admm] = res
-            if (res*rho) <= 1:
+            if use_threshold and ((res*rho) <= 1):
                 agent.x_bar = deepcopy(-agent.x_star[id])
             else:
             # Optimization: Find x_bar if over threshold
@@ -250,10 +263,12 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
             
             # Store: Reconstructed Error
             new_x = deepcopy(agent.x_bar.flatten()) + deepcopy(agent.x_star[id].flatten())
-            x_history[agent_id][:, inner_i + outer_i*n_admm] = new_x.flatten()
+            x_history[id][:, inner_i + outer_i*n_admm] = new_x.flatten()
 
             # Store: Convergence of Reconstructed Error Vector
-            x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
+            new_x_norm = np.linalg.norm(new_x.flatten() + x_true[id].flatten())
+            x_norm_history[id][:, inner_i + outer_i*n_admm] = new_x_norm
+            sum_err_rmse += new_x_norm
 
 
         ##      Minimization        - Primal Variable 2
@@ -288,17 +303,23 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
         for agent_id, agent in enumerate(agents):
             
             # Summation for c() constraint
-            for _, edge_ind in enumerate(agent.get_edge_indices()):
+            for i, edge_ind in enumerate(agent.get_edge_indices()):
                 constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_bar - z_noise[edge_ind]
                 for nbr_id in agent.get_neighbors():
                     constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[agent_id]
                 
-                agent.lam[edge_ind] = deepcopy(agent.lam[edge_ind] + rho * constr_c)
+                new_lam = (agent.lam[edge_ind] + rho * constr_c)
+                agent.lam[edge_ind] = deepcopy(new_lam)
+                lam_norm_history[agent_id][i, (inner_i + outer_i*n_admm)] = np.linalg.norm(deepcopy(new_lam))
+
 
             # Summation for d() constraint
-            for _, nbr_id in enumerate(agent.get_neighbors()):
+            for i, nbr_id in enumerate(agent.get_neighbors()):
                 constr_d = agent.x_bar - agent.w[nbr_id]
-                agent.mu[nbr_id] = deepcopy(agent.mu[nbr_id] + rho * constr_d)
+                new_mu = (agent.mu[nbr_id] + rho * constr_d)
+                agent.mu[nbr_id] = deepcopy(new_mu)
+                mu_norm_history[agent_id][i, (inner_i + outer_i*n_admm)] = np.linalg.norm(deepcopy(new_mu))
+
 
     ###     END Looping         - ADMM Inner Loop
     
@@ -311,7 +332,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
         x_star[agent_id] = agent.x_star[agent_id]
         
         # Update position and x_dev
-        p_est[agent_id] = p_hat[agent_id] + x_star[agent_id]
+        p_est[agent_id] = p_hat_noise[agent_id] + x_star[agent_id]
 
 ###     END Looping         - SCP Outer Loop
 
@@ -359,19 +380,22 @@ plt.grid(True)
 
 ###     Plotting            - Error Convergence
 # Show convergence of estimated error vector to true error vector over time
-#TODO: This needs to be fixed.
-# x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
-# plt.figure()
-# for agent_id, agent in enumerate(agents):
-#     label_str = "Agent " + str(agent_id)
-#     plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
-# plt.title("Convergence of Error Vector")
-# plt.xlabel("Iterations")
-# plt.ylabel("||x* - x||")
-# # plt.ylim(left=0)
-# plt.xlim((0, n_scp*n_admm))
-# plt.legend(loc='best')
-# plt.grid(True)
+x_norm_history = [x_norm_history[i].flatten() for i in range(num_agents)]
+fig_err = plt.figure(dpi=200)
+ax_err = fig_err.add_subplot()
+for agent_id, agent in enumerate(agents):
+    label_str = f"Agent {agent_id}"
+    ax_err.plot(total_iterations, x_norm_history[agent_id], label=label_str)
+plt.title("Convergence of Error Vector")
+plt.xlabel("Iterations")
+plt.ylabel("||x* - x||")
+plt.ylim((0, 1.1*np.linalg.norm(fault_vec)))
+plt.xlim((0, n_scp*n_admm))
+plt.legend(loc='best')
+plt.grid(True)
+
+print(f"Penalty Parameter: {rho}")
+print(f"Average RMSE: {sum_err_rmse / num_agents}")
 
 
 
@@ -459,6 +483,29 @@ ax2.legend(loc='best')
 ax2.set_ylim(bottom=0, top=10)
 ax2.grid(True)
 
+
+###     Plotting            - Dual Variables: Lambda
+fig_lam, ax_lam = plt.subplots(dpi=200)
+ax_lam.set_title(f"Lambda for agent {faulty_id}")
+ax_lam.set_xlabel("Iteration")
+ax_lam.set_ylabel("Lambda")
+for id, _ in enumerate(agents):
+    for i in range(lam_norm_history[id].shape[0]):
+        ax_lam.plot(np.arange(n_iter), lam_norm_history[id][i, :].flatten(), label=f"Agent {id}, Edge {i}")
+# ax_lam.legend(loc='best')
+ax_lam.grid(True)
+
+
+###     Plotting            - Dual Variables: Mu
+fig_mu, ax_mu = plt.subplots(dpi=200)
+ax_mu.set_title(f"Mu for agent {faulty_id}")
+ax_mu.set_xlabel("Iteration")
+ax_mu.set_ylabel("Mu")
+for id, _ in enumerate(agents):
+    for i in range(mu_norm_history[id].shape[0]):
+        ax_mu.plot(np.arange(n_iter), mu_norm_history[id][i, :].flatten(), label=f"Agent {id}, Neighbor {i}")
+# ax_mu.legend(loc='best')
+ax_mu.grid(True)
 
 
 ###     Plotting            - Show Plots

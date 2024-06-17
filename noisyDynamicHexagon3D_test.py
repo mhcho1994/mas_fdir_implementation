@@ -2,7 +2,7 @@
 Project:    TII - MAS Fault Detection, Identification, and Reconfiguration
 Author:     Vishnu Vijay
 Description:
-            - 2D Project
+            - 3D Project
             - Implementation of " Collaborative Fault-Identification &
               Reconstruction in Multi-Agent Systems" by Khan et al.
             - Algorithm uses inter-agent distances to reconstruct a sparse
@@ -33,7 +33,7 @@ from iam_models import distance
 
 
 ###     Initializations     - Scalars
-dim             =   2   # 2 or 3
+dim             =   3   # 2 or 3
 num_agents      =   6
 num_faulty      =   1   # must be << num_agents for sparse error assumption
 n_scp           =   5  # Number of SCP iterations
@@ -43,6 +43,8 @@ show_prob1      =   False
 show_prob2      =   False
 use_threshold   =   False
 rho             =   0.5
+iam_noise       =   0.02
+pos_noise       =   0.02
 warm_start      =   False
 lam_lim         =   1
 mu_lim          =   1
@@ -52,22 +54,22 @@ mu_lim          =   1
 agents      =   [None] * num_agents
 d           =   10   # hexagon side length
 agents[0]   =   Agent(agent_id= 0,
-                      init_position= np.array([[d/2, -d*np.sqrt(3)/2]]).T)
+                      init_position= np.array([[d/2, -d*np.sqrt(3)/2, 0]]).T)
 agents[1]   =   Agent(agent_id= 1,
-                      init_position= np.array([[-d/2, -d*np.sqrt(3)/2]]).T)
+                      init_position= np.array([[-d/2, -d*np.sqrt(3)/2, 0]]).T)
 agents[2]   =   Agent(agent_id= 2,
-                      init_position= np.array([[-d, 0]]).T)
+                      init_position= np.array([[-d, 0, 0]]).T)
 agents[3]   =   Agent(agent_id= 3,
-                      init_position= np.array([[-d/2, d*np.sqrt(3)/2]]).T)
+                      init_position= np.array([[-d/2, d*np.sqrt(3)/2, 0]]).T)
 agents[4]   =   Agent(agent_id= 4,
-                      init_position= np.array([[d/2, d*np.sqrt(3)/2]]).T)
+                      init_position= np.array([[d/2, d*np.sqrt(3)/2, 0]]).T)
 agents[5]   =   Agent(agent_id= 5,
-                      init_position= np.array([[d, 0]]).T)
+                      init_position= np.array([[d, 0, 0]]).T)
 
 # Add error vector
 agent_speed = 0.25
 faulty_id = 5 #np.random.randint(0, high=num_agents)
-fault_vec = np.array([[-0.2417], [0.2106]]) #agent_speed*2*(np.random.rand(dim, 1) - 0.5)
+fault_vec = np.array([[-0.2417], [0.2106], [0]]) #agent_speed*2*(np.random.rand(dim, 1) - 0.5)
 x_true = []
 for id, agent in enumerate(agents):
     x_true.append(agent.error_vector)
@@ -123,7 +125,7 @@ def true_meas(p):
     measurements = []
 
     for edge in edges:
-        dist = distance((p[edge[0]]), (p[edge[1]])) + np.random.normal(scale=gaus_scale)
+        dist = distance((p[edge[0]]), (p[edge[1]])) + np.random.normal(scale=iam_noise)
         measurements.append(dist)
 
     return measurements
@@ -226,9 +228,9 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
 
         for id, agent in enumerate(agents):
             angle = (inner_i + outer_i*n_admm)*angular_vel
-            del_pos = np.array([[circ_r*np.cos(angle)], [circ_r*np.sin(angle)]])
+            del_pos = np.array([[circ_r*np.cos(angle)], [circ_r*np.sin(angle)], [0]])
             agent.position = p_orig[id] + del_pos
-            p_hat[id] = agent.position
+            p_hat[id] = agent.position + np.random.normal(scale=pos_noise, size=(dim, 1))
             est_pos_history[id][:, inner_i + outer_i*n_admm] = agent.position.flatten()
         
         x_true[faulty_id] = (inner_i + outer_i*n_admm)*fault_vec.flatten()
@@ -391,14 +393,25 @@ print("\nPlotting")
 print()
 
 # Compare position estimates before and after reconstruction
-plt.figure()
-plt.title("Agent Position Estimates")
-plt.xlabel("x")
-plt.ylabel("y")
+fig_static = plt.figure(dpi=200)
+ax_static = fig_static.add_subplot(projection='3d')
+ax_static.set_title("Agent Position Estimates (STATIC)")
+ax_static.set_xlabel("x")
+ax_static.set_ylabel("y")
+ax_static.set_zlabel("z")
+
 for agent_id, agent in enumerate(agents):
-    plt.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Reported")
-    plt.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="Reconstructed")
-    plt.scatter(true_pos_history[agent_id][0, -1], true_pos_history[agent_id][1, -1], marker='x', c='k', label="True")
+    ax_static.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Reported")
+    ax_static.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="Reconstructed")
+    ax_static.scatter(true_pos_history[agent_id][0, -1], true_pos_history[agent_id][1, -1], marker='x', c='k', label="True")
+
+for i, edge in enumerate(edges): # Draw edges
+    p1 = p_est[edge[0]]
+    p2 = p_est[edge[1]]
+    x = [p1[0], p2[0]]
+    y = [p1[1], p2[1]]
+    z = [p1[2], p2[2]]
+    ax_static.plot(x, y, z, c='k', linewidth=1, alpha=0.5)[0]
 plt.legend(["Without Inter-agent Measurements", "With Inter-agent Measurements", "True Position"], loc='best', fontsize=5, markerscale=0.3)
 plt.grid(True)
 
@@ -413,7 +426,7 @@ for agent_id, agent in enumerate(agents):
     plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
 plt.title("Convergence of Error Vector")
 plt.xlabel("Iterations")
-plt.ylabel("||x* - x||")
+plt.ylabel("||x* + x_hat - x||")
 plt.xlim((0, n_scp*n_admm))
 plt.legend(loc='best')
 plt.grid(True)
@@ -427,28 +440,34 @@ for id in range(num_agents):
     this_pos = np.zeros((dim, n_iter))
     for iter in range(n_iter):
         angle = iter*angular_vel
-        del_pos = np.array([[circ_r*np.cos(angle)], [circ_r*np.sin(angle)]])
+        del_pos = np.array([[circ_r*np.cos(angle)], [circ_r*np.sin(angle)], [0]])
 
         this_pos[:,iter] = p_orig[id].flatten() + x_history[id][:, iter].flatten() + del_pos.flatten()
     p_hist.append(this_pos)
 
 # Start figure
-fig, ax = plt.subplots(dpi=200)
-ax.set_title("Agent Estimated Position")
+fig = plt.figure(dpi=200)
+ax = fig.add_subplot(projection='3d')
+ax.set_title("Agent Estimated Position (ANIMATION)")
 ax.set_xlabel("x position")
 ax.set_ylabel("y position")
+ax.set_zlabel("z position")
 ax.set_xlim((-20, 20))
 ax.set_ylim((-20, 20))
-scat_pos_est = [None] * num_agents # Position estimate during reconstruction
-scat_pos_hat = [None] * num_agents # Initial position estimate
+ax.set_zlim((-5, 5))
+scat_pos_recons = [None] * num_agents # Position estimate during reconstruction
+scat_pos_est = [None] * num_agents # Initial position estimate
 scat_pos_true = [None] * num_agents # True positions
 line_pos_est = [None] * len(edges) # Inter-agent communication
 
 # Draw each agent's original estimated, current estimated, and true positions
 for agent_id, _ in enumerate(agents):
-    scat_pos_est[agent_id] = ax.scatter(p_hist[agent_id][0, 0], p_hist[agent_id][1, 0], marker='*', c='c', label="After", s=100)
-    scat_pos_hat[agent_id] = ax.scatter(est_pos_history[agent_id][0, 0], est_pos_history[agent_id][1, 0], facecolors='none', edgecolors='orangered', label="Before", s=100)
-    scat_pos_true[agent_id] = ax.scatter(true_pos_history[agent_id][0, 0], true_pos_history[agent_id][1, 0], marker='x', c='g', label="True", s=100)
+    scat_pos_recons[agent_id] = ax.plot(p_hist[agent_id][0, 0], p_hist[agent_id][1, 0], p_hist[agent_id][2, 0],
+                                        marker='*', c='c', linestyle='None', label="After", markersize=10)[0]
+    scat_pos_est[agent_id] = ax.plot(est_pos_history[agent_id][0, 0], est_pos_history[agent_id][1, 0], est_pos_history[agent_id][2, 0],
+                                        marker='o', markerfacecolor='none', c='orangered', linestyle='None', label="Before", markersize=10)[0]
+    scat_pos_true[agent_id] = ax.plot(true_pos_history[agent_id][0, 0], true_pos_history[agent_id][1, 0], 
+                                        marker='x', c='g', linestyle='None', label="True", markersize=10)[0]
 
 # Draw line for each edge of network
 for i, edge in enumerate(edges):
@@ -456,7 +475,8 @@ for i, edge in enumerate(edges):
     p2 = p_hist[edge[1]][:, 0]
     x = [p1[0], p2[0]]
     y = [p1[1], p2[1]]
-    line_pos_est[i] = ax.plot(x, y, c='k', linewidth=1, alpha=0.5)[0]
+    z = [p1[2], p2[2]]
+    line_pos_est[i] = ax.plot(x, y, z, c='k', linewidth=1, alpha=0.5)[0]
 ax.legend(["With Inter-agent Measurements", "Without Inter-agent Measurements", "True Position"], loc='best', fontsize=6, markerscale=0.4)
 ax.grid(True)
 
@@ -465,10 +485,25 @@ def update_pos_plot(frame):
     updated_ax = []
     # Draw each agent's original estimated, current estimated, and true positions
     for agent_id, _ in enumerate(agents):
-        scat_pos_est[agent_id].set_offsets(p_hist[agent_id][:, frame])
-        scat_pos_hat[agent_id].set_offsets(est_pos_history[agent_id][:, frame])
-        scat_pos_true[agent_id].set_offsets(true_pos_history[agent_id][:, frame])
-        updated_ax.append(scat_pos_hat[agent_id])
+        new_recons_pos = (float(p_hist[agent_id][0, frame]), 
+                          float(p_hist[agent_id][1, frame]), 
+                          float(p_hist[agent_id][2, frame]))
+        scat_pos_recons[agent_id].set_data([new_recons_pos[0]], [new_recons_pos[1]])
+        scat_pos_recons[agent_id].set_3d_properties([new_recons_pos[2]])
+
+        new_est_pos = (float(est_pos_history[agent_id][0, frame]), 
+                       float(est_pos_history[agent_id][1, frame]), 
+                       float(est_pos_history[agent_id][2, frame]))
+        scat_pos_est[agent_id].set_data([new_est_pos[0]], [new_est_pos[1]])
+        scat_pos_est[agent_id].set_3d_properties([new_est_pos[2]])
+
+        new_true_pos = (float(true_pos_history[agent_id][0, frame]), 
+                        float(true_pos_history[agent_id][1, frame]), 
+                        float(true_pos_history[agent_id][2, frame]))
+        scat_pos_true[agent_id].set_data([new_true_pos[0]], [new_true_pos[1]])
+        scat_pos_true[agent_id].set_3d_properties([new_true_pos[2]])        
+        
+        updated_ax.append(scat_pos_recons[agent_id])
         updated_ax.append(scat_pos_est[agent_id])
         updated_ax.append(scat_pos_true[agent_id])
     
@@ -478,8 +513,11 @@ def update_pos_plot(frame):
         p2 = p_hist[edge[1]][:, frame]
         x = [p1[0], p2[0]]
         y = [p1[1], p2[1]]
-        line_pos_est[i].set_xdata(x)
-        line_pos_est[i].set_ydata(y)
+        z = [p1[2], p2[2]]
+
+        line_pos_est[i].set_data(x, y)
+        line_pos_est[i].set_3d_properties(z)
+
         updated_ax.append(line_pos_est[i])
     
     return updated_ax
@@ -487,7 +525,7 @@ def update_pos_plot(frame):
 # Call update function
 pos_ani = animation.FuncAnimation(fig=fig, func=update_pos_plot, frames=n_iter, interval=100)
 dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-fname = "fig/2D-NoisyDynamicHexagon/pos2D_ani_" + dt_string + ".gif"
+fname = "fig/3D-NoisyDynamicHexagon/pos3D_ani_" + dt_string + ".gif"
 pos_ani.save(filename=fname, writer="pillow")
 
 
@@ -509,6 +547,7 @@ ax2.set_ylim(bottom=0, top=10)
 ax2.grid(True)
 
 
+
 ###     Plotting            - Dual Variables: Lambda
 fig_lam, ax_lam = plt.subplots(dpi=200)
 ax_lam.set_title(f"Lambda for agents; Faulty ID: {faulty_id}")
@@ -521,6 +560,7 @@ for id, _ in enumerate(agents):
 ax_lam.grid(True)
 
 
+
 ###     Plotting            - Dual Variables: Mu
 fig_mu, ax_mu = plt.subplots(dpi=200)
 ax_mu.set_title(f"Mu for agents; Faulty ID: {faulty_id}")
@@ -531,6 +571,7 @@ for id, _ in enumerate(agents):
         ax_mu.plot(np.arange(n_iter), mu_norm_history[id][i, :].flatten(), label=f"Agent {id}, Neighbor {i}")
 # ax_mu.legend(loc='best')
 ax_mu.grid(True)
+
 
 
 ###     Plotting            - Show Plots

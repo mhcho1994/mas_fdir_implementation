@@ -65,8 +65,8 @@ agents[6]   =   Agent(agent_id= 6,
 
 
 # Add error vector
-faulty_id   =   np.random.randint(0, high=num_agents)
-fault_vec   =   3*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
+faulty_id   =   5  #np.random.randint(0, high=num_agents)
+fault_vec   =   np.array([[0.89616, 0.60190, 1.93198]]).T  #3*np.random.rand(dim, 1) # np.array([[0.0, 0, 0]]).T #
 agents[faulty_id].faulty = True
 agents[faulty_id].error_vector = fault_vec
 
@@ -154,7 +154,7 @@ y = measurements(p_true, x_star)                                            # CO
 
 
 ###      Initializations    - Optimization Parameters
-rho = 1.0
+rho = 0.5
 total_iterations = np.arange((n_iter))
 for agent_id, agent in enumerate(agents):
     num_edges       = len(agent.get_edge_indices())
@@ -166,8 +166,9 @@ for agent_id, agent in enumerate(agents):
 
     # Parameters
     agent.init_x_bar(np.zeros((dim, 1)))
-    agent.init_lam(np.zeros((1, 1)), agent.get_edge_indices())
-    agent.init_mu(np.zeros((dim, 1)), agent.get_neighbors())
+    agent.init_lam(np.zeros((1, 1)), np.arange(len(edges))) #agent.get_edge_indices())
+    # print(len(agent.lam))
+    agent.init_mu(np.zeros((dim, 1)), np.arange(num_agents)) #agent.get_neighbors())
     agent.init_x_star(np.zeros((dim, 1)), agent.get_neighbors()) # own err is last elem
     agent.init_w(np.zeros((dim, 1)), agent.get_neighbors())
 
@@ -222,7 +223,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
             new_x = deepcopy(agent.x_bar.flatten()) + x_star[agent_id].flatten()
 
             x_history[agent_id][:, inner_i + outer_i*n_admm] = new_x.flatten()
-            x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
+            x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() + x_true[agent_id].flatten())
 
         ##      Minimization        - Thresholding Parameter
         # TODO: Implement
@@ -322,19 +323,19 @@ plt.grid(True)
 
 ###     Plotting            - Error Convergence
 # Show convergence of estimated error vector to true error vector over time
-#TODO: This needs to be fixed.
-# x_norm_history = [x_norm_history[id].flatten() for i in range(num_agents)]
-# plt.figure()
-# for agent_id, agent in enumerate(agents):
-#     label_str = "Agent " + str(agent_id)
-#     plt.plot(total_iterations, x_norm_history[agent_id], label=label_str)
-# plt.title("Convergence of Error Vector")
-# plt.xlabel("Iterations")
-# plt.ylabel("||x* - x||")
-# # plt.ylim(left=0)
-# plt.xlim((0, n_scp*n_admm))
-# plt.legend(loc='best')
-# plt.grid(True)
+x_norm_history = [x_norm_history[i].flatten() for i in range(num_agents)]
+fig_err = plt.figure(dpi=200)
+ax_err = fig_err.add_subplot()
+for agent_id, agent in enumerate(agents):
+    label_str = f"Agent {agent_id}"
+    ax_err.plot(total_iterations, x_norm_history[agent_id], label=label_str)
+plt.title("Convergence of Error Vector")
+plt.xlabel("Iterations")
+plt.ylabel("||x* - x||")
+# plt.ylim(left=0)
+plt.xlim((0, n_scp*n_admm))
+plt.legend(loc='best')
+plt.grid(True)
 
 
 

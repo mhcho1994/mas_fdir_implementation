@@ -249,8 +249,8 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
                 agent.x_bar = deepcopy(np.array(agent.x_cp.value).reshape((-1, 1)))
             
             # Store: Reconstructed Error
-            new_x = deepcopy(agent.x_bar.flatten()) + deepcopy(x_star[agent_id].flatten())
-            x_history[agent_id][:, inner_i + outer_i*n_admm] = deepcopy(new_x.flatten())
+            new_x = deepcopy(agent.x_bar.flatten()) + deepcopy(x_star[id].flatten())
+            x_history[id][:, inner_i + outer_i*n_admm] = deepcopy(new_x.flatten())
 
             # Store: Convergence of Reconstructed Error Vector
             x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
