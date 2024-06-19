@@ -37,7 +37,7 @@ dim             =   3   # 2 or 3
 num_agents      =   20
 num_faulty      =   1   # must be << num_agents for sparse error assumption
 n_scp           =   5  # Number of SCP iterations
-n_admm          =   20  # Number of ADMM iterations
+n_admm          =   10  # Number of ADMM iterations
 n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
@@ -79,10 +79,11 @@ agents[19]  =   Agent(agent_id = 19, init_position = np.array([[4.7, 2.4, 5.4]])
 # tac paper case -> [0, 5, 7, 9, 10, 13]
 agent_speed = 0.25              # non-used variable
 faulty_id = [0, 5, 7, 9, 10, 13] 
-fault_vec   =   2*np.random.rand(dim,len(faulty_id))-np.ones((dim,len(faulty_id)))
-for order, id in enumerate(faulty_id):
-    agents[id].faulty = True
-    agents[id].error_vector = fault_vec[:,order][:,np.newaxis]
+fault_vec   =   []
+for index, agent_id in enumerate(faulty_id):
+    fault_vec.append(2*np.random.rand(dim,)-np.ones((dim,)))
+    agents[agent_id].faulty = True
+    agents[agent_id].error_vector = fault_vec[index][:,np.newaxis]
 
 x_true = []
 for id, agent in enumerate(agents):
@@ -224,7 +225,7 @@ print("\n~ ~ ~ ~ PARAMETERS ~ ~ ~ ~")
 print("rho:", rho)
 print("Number of agents:", num_agents)
 print("Faulty Agent ID:", faulty_id)
-print("Faulty Agent Vector:", fault_vec.flatten())
+print("Faulty Agent Vector:\n", np.array(fault_vec))
 print(f"Use Residual Threshold Reset: {use_threshold}")
 print(f"Warm Start: {warm_start}")
 
@@ -256,9 +257,9 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
             est_pos_history[id][:, inner_i + outer_i*n_admm] = agent.position.flatten()
         
         p = deepcopy(p_hat)
-        for _,agent_id in enumerate(faulty_id):
-            x_true[agent_id] = (inner_i + outer_i*n_admm)*fault_vec.flatten()       
-            p[agent_id] = deepcopy(p[agent_id].flatten() + (inner_i + outer_i*n_admm)*fault_vec.flatten()).reshape(-1, 1) # True position of the agents
+        for index,agent_id in enumerate(faulty_id):
+            x_true[agent_id] = (inner_i + outer_i*n_admm)*fault_vec[index].flatten()       
+            p[agent_id] = deepcopy(p[agent_id].flatten() + (inner_i + outer_i*n_admm)*fault_vec[index].flatten()).reshape(-1, 1) # True position of the agents
         y = true_meas(p)
         z = [(y[i] - meas) for i, meas in enumerate(exp_meas)]
 
