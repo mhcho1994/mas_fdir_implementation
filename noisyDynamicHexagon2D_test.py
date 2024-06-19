@@ -24,6 +24,8 @@ import matplotlib.animation as animation
 from copy import deepcopy
 from datetime import datetime
 from tqdm import tqdm
+from math import comb
+from time import time
 
 
 ###     Imports             - User-Defined Files
@@ -36,16 +38,18 @@ from iam_models import distance
 dim             =   2   # 2 or 3
 num_agents      =   6
 num_faulty      =   1   # must be << num_agents for sparse error assumption
-n_scp           =   5  # Number of SCP iterations
-n_admm          =   20  # Number of ADMM iterations
+n_scp           =   20  # Number of SCP iterations
+n_admm          =   6 # Number of ADMM iterations
 n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 use_threshold   =   False
 rho             =   0.5
+iam_noise       =   0.00
 warm_start      =   False
 lam_lim         =   1
 mu_lim          =   1
+show_plots      =   False
 
 ###     Initializations     - Agents
 # 6 agents making up a hexagon
@@ -76,21 +80,19 @@ for id, agent in enumerate(agents):
 angular_vel = 2*np.pi / 100
 circ_r = 2
 
-# Interagent measurement noise
-gaus_scale = 0.02
 
 # Set Neighbors
-edges                   = [[0,1], [0,2], [0,3], 
-                           [0,4], [0,5], [1,2],
-                           [1,3], [1,4], [1,5],
-                           [2,3], [2,4], [2,5],
-                           [3,4], [3,5], [4,5],
-                           
-                           [1,0], [2,0], [3,0], 
-                           [4,0], [5,0], [2,1],
-                           [3,1], [4,1], [5,1],
-                           [3,2], [4,2], [5,2],
-                           [4,3], [5,3], [5,4]] # these edges are directed
+edges    = [[0,1], [0,2], [0,3], 
+            [0,4], [0,5], [1,2],
+            [1,3], [1,4], [1,5],
+            [2,3], [2,4], [2,5],
+            [3,4], [3,5], [4,5],
+            
+            [1,0], [2,0], [3,0], 
+            [4,0], [5,0], [2,1],
+            [3,1], [4,1], [5,1],
+            [3,2], [4,2], [5,2],
+            [4,3], [5,3], [5,4]] # these edges are directed
 
 for agent_id, agent in enumerate(agents):
     # Neighbor List
@@ -123,7 +125,7 @@ def true_meas(p):
     measurements = []
 
     for edge in edges:
-        dist = distance((p[edge[0]]), (p[edge[1]])) + np.random.normal(scale=gaus_scale)
+        dist = distance((p[edge[0]]), (p[edge[1]])) + np.random.normal(scale=iam_noise)
         measurements.append(dist)
 
     return measurements
@@ -152,6 +154,29 @@ def get_Jacobian_matrix(p, x):
         R.append(get_Jacobian_row(edge_ind, p, x))
     
     return R
+
+# Returns rank of Jacobian matrix
+def get_Jacobian_rank(R):
+    
+    jac_matrix = R[0]
+    for row in R[1:]:
+        jac_matrix = np.vstack((jac_matrix, row))
+    
+    return np.linalg.matrix_rank(jac_matrix)
+
+# 
+def get_Jacobian_matrix_norm_diff(R_old, R_new):
+
+    old_matrix = R_old[0]
+    for row in R_old[1:]:
+        old_matrix = np.vstack((old_matrix, row))
+
+    new_matrix = R_new[0]
+    for row in R_new[1:]:
+        new_matrix = np.vstack((new_matrix, row))
+
+    return np.linalg.norm(new_matrix - old_matrix)
+
 
 
 ###     Initializations     - Measurements and Positions
@@ -201,21 +226,35 @@ print("rho:", rho)
 print("Number of agents:", num_agents)
 print("Faulty Agent ID:", faulty_id)
 print("Faulty Agent Vector:", fault_vec.flatten())
-print(f"Use Residual Threshold Reset: {use_threshold}")
+print(f"Use Residual Threshold Optimization Skip: {use_threshold}")
 print(f"Warm Start: {warm_start}")
 
 
 ###     Initializations     - Storing Dual Variables
 lam_norm_history = [np.zeros((len(agents[i].get_edge_indices()), n_iter)) for i in range(num_agents)]
 mu_norm_history = [np.zeros((len(agents[i].get_neighbors()), n_iter)) for i in range(num_agents)]
-
+R_norm_diff_history = np.zeros(n_scp)
+sum_err_rmse = 0
+maximal_rank = dim*num_agents - comb(dim + 1, 2)
 
 ###     Looping             - SCP Outer Loop
 print("\nLooping")
+init_time = time()
 for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
 
     exp_meas = meas_model(p_hat, x_star)
-    R = get_Jacobian_matrix(p_hat, x_star)
+
+    R_new = get_Jacobian_matrix(p_hat, x_star)
+    if (outer_i > 0):
+        R_norm_diff = get_Jacobian_matrix_norm_diff(R, R_new)
+        # print(f"\nR norm difference: {R_norm_diff}")
+        R_norm_diff_history[outer_i] = R_norm_diff
+    R = R_new
+
+    jac_rank = get_Jacobian_rank(R)
+    if (jac_rank != maximal_rank):
+        print(f"\nMaximal Condition not met @ SCP Iteration {outer_i}")
+        print(f"\tExpected: {maximal_rank}; Got: {jac_rank}")
 
     for agent in agents:
         agent.init_w(np.zeros((dim, 1)), agent.get_neighbors())
@@ -293,8 +332,9 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
             x_history[agent_id][:, inner_i + outer_i*n_admm] = new_x.flatten()
 
             # Store: Convergence of Reconstructed Error Vector
-            x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
-
+            new_x_norm = np.linalg.norm(new_x.flatten() - x_true[agent_id].flatten())
+            x_norm_history[agent_id][:, inner_i + outer_i*n_admm] = new_x_norm
+            sum_err_rmse += new_x_norm
 
 
         ##      Minimization        - Primal Variable 2
@@ -383,24 +423,24 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
             reset_lam[agent_id] = False
 
 ###     END Looping         - SCP Outer Loop
-
+final_time = time()
 
 
 ###     Plotting            - Static Position Estimates
 print("\nPlotting")
 print()
 
-# Compare position estimates before and after reconstruction
-plt.figure()
-plt.title("Agent Position Estimates")
-plt.xlabel("x")
-plt.ylabel("y")
-for agent_id, agent in enumerate(agents):
-    plt.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Reported")
-    plt.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="Reconstructed")
-    plt.scatter(true_pos_history[agent_id][0, -1], true_pos_history[agent_id][1, -1], marker='x', c='k', label="True")
-plt.legend(["Without Inter-agent Measurements", "With Inter-agent Measurements", "True Position"], loc='best', fontsize=5, markerscale=0.3)
-plt.grid(True)
+# # Compare position estimates before and after reconstruction
+# plt.figure()
+# plt.title("Agent Position Estimates")
+# plt.xlabel("x")
+# plt.ylabel("y")
+# for agent_id, agent in enumerate(agents):
+#     plt.scatter(p_hat[agent_id][0], p_hat[agent_id][1], marker='o', c='c', label="Reported")
+#     plt.scatter(p_est[agent_id][0], p_est[agent_id][1], marker='*', c='m', label="Reconstructed")
+#     plt.scatter(true_pos_history[agent_id][0, -1], true_pos_history[agent_id][1, -1], marker='x', c='k', label="True")
+# plt.legend(["Without Inter-agent Measurements", "With Inter-agent Measurements", "True Position"], loc='best', fontsize=5, markerscale=0.3)
+# plt.grid(True)
 
 
 
@@ -417,6 +457,10 @@ plt.ylabel("||x* - x||")
 plt.xlim((0, n_scp*n_admm))
 plt.legend(loc='best')
 plt.grid(True)
+
+print(f"Num ADMM: {n_admm}")
+print(f"Average RMSE: {sum_err_rmse / num_agents}")
+print(f"Elapsed Time: {final_time - init_time}")
 
 
 
@@ -494,44 +538,57 @@ pos_ani.save(filename=fname, writer="pillow")
 
 ###     Plotting            - Residuals and Threshold
 
-# Start figure
-fig2, ax2 = plt.subplots(dpi=200)
-ax2.set_title("Residual monitor")
-ax2.set_xlabel("Iteration")
-ax2.set_ylabel("Residual")
+# # Start figure
+# fig2, ax2 = plt.subplots(dpi=200)
+# ax2.set_title("Residual monitor")
+# ax2.set_xlabel("Iteration")
+# ax2.set_ylabel("Residual")
 
-# Plot residuals of each agent
-for id, this_res_hist in enumerate(residuals):
-    ax2.plot(np.arange(n_iter), this_res_hist, label=f"Agent {id}")
-ax2.plot(range(n_iter), [1]*n_iter, label=f"Threshold")
-ax2.legend(loc='best')
-ax2.set_ylim(bottom=0, top=10)
-ax2.grid(True)
+# # Plot residuals of each agent
+# for id, this_res_hist in enumerate(residuals):
+#     ax2.plot(np.arange(n_iter), this_res_hist, label=f"Agent {id}")
+# ax2.plot(range(n_iter), [1]*n_iter, label=f"Threshold")
+# ax2.legend(loc='best')
+# ax2.set_ylim(bottom=0, top=10)
+# ax2.grid(True)
 
 
 ###     Plotting            - Dual Variables: Lambda
-fig_lam, ax_lam = plt.subplots(dpi=200)
-ax_lam.set_title(f"Lambda for agents; Faulty ID: {faulty_id}")
-ax_lam.set_xlabel("Iteration")
-ax_lam.set_ylabel("Lambda")
-for id, _ in enumerate(agents):
-    for i in range(lam_norm_history[id].shape[0]):
-        ax_lam.plot(np.arange(n_iter), lam_norm_history[id][i, :].flatten(), label=f"Agent {id}, Edge {i}")
-# ax_lam.legend(loc='best')
-ax_lam.grid(True)
+
+# fig_lam, ax_lam = plt.subplots(dpi=200)
+# ax_lam.set_title(f"Lambda for agents; Faulty ID: {faulty_id}")
+# ax_lam.set_xlabel("Iteration")
+# ax_lam.set_ylabel("Lambda")
+# for id, _ in enumerate(agents):
+#     for i in range(lam_norm_history[id].shape[0]):
+#         ax_lam.plot(np.arange(n_iter), lam_norm_history[id][i, :].flatten(), label=f"Agent {id}, Edge {i}")
+# # ax_lam.legend(loc='best')
+# ax_lam.grid(True)
 
 
 ###     Plotting            - Dual Variables: Mu
-fig_mu, ax_mu = plt.subplots(dpi=200)
-ax_mu.set_title(f"Mu for agents; Faulty ID: {faulty_id}")
-ax_mu.set_xlabel("Iteration")
-ax_mu.set_ylabel("Mu")
-for id, _ in enumerate(agents):
-    for i in range(mu_norm_history[id].shape[0]):
-        ax_mu.plot(np.arange(n_iter), mu_norm_history[id][i, :].flatten(), label=f"Agent {id}, Neighbor {i}")
-# ax_mu.legend(loc='best')
-ax_mu.grid(True)
+
+# fig_mu, ax_mu = plt.subplots(dpi=200)
+# ax_mu.set_title(f"Mu for agents; Faulty ID: {faulty_id}")
+# ax_mu.set_xlabel("Iteration")
+# ax_mu.set_ylabel("Mu")
+# for id, _ in enumerate(agents):
+#     for i in range(mu_norm_history[id].shape[0]):
+#         ax_mu.plot(np.arange(n_iter), mu_norm_history[id][i, :].flatten(), label=f"Agent {id}, Neighbor {i}")
+# # ax_mu.legend(loc='best')
+# ax_mu.grid(True)
+
+
+###     Plotting            - Norm Difference in R
+
+fig_R_diff, ax_R_diff = plt.subplots(dpi=200)
+ax_R_diff.set_title("Norm Difference between old R and new R")
+ax_R_diff.set_xlabel("Outer Loop Iteration")
+ax_R_diff.set_ylabel("|| R_old - R_new ||")
+ax_R_diff.plot(np.arange(n_scp), R_norm_diff_history)
+ax_R_diff.grid(True)
 
 
 ###     Plotting            - Show Plots
-plt.show()
+if show_plots:
+    plt.show()
