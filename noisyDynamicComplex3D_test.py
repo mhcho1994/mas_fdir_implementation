@@ -34,7 +34,7 @@ from iam_models import distance
 
 ###     Initializations     - Scalars
 dim             =   3   # 2 or 3
-num_agents      =   6
+num_agents      =   20
 num_faulty      =   1   # must be << num_agents for sparse error assumption
 n_scp           =   5  # Number of SCP iterations
 n_admm          =   20  # Number of ADMM iterations
@@ -42,57 +42,79 @@ n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 use_threshold   =   False
-rho             =   0.5
-iam_noise       =   0.02
-pos_noise       =   0.02
+rho             =   1.0
+iam_noise       =   0.00
+pos_noise       =   0.00
 warm_start      =   False
 lam_lim         =   1
 mu_lim          =   1
 
 ###     Initializations     - Agents
-# 6 agents making up a hexagon
+# 20 agents making up a complex 3d configuration
 agents      =   [None] * num_agents
-d           =   10   # hexagon side length
-agents[0]   =   Agent(agent_id= 0,
-                      init_position= np.array([[d/2, -d*np.sqrt(3)/2, 0]]).T)
-agents[1]   =   Agent(agent_id= 1,
-                      init_position= np.array([[-d/2, -d*np.sqrt(3)/2, 0]]).T)
-agents[2]   =   Agent(agent_id= 2,
-                      init_position= np.array([[-d, 0, 0]]).T)
-agents[3]   =   Agent(agent_id= 3,
-                      init_position= np.array([[-d/2, d*np.sqrt(3)/2, 0]]).T)
-agents[4]   =   Agent(agent_id= 4,
-                      init_position= np.array([[d/2, d*np.sqrt(3)/2, 0]]).T)
-agents[5]   =   Agent(agent_id= 5,
-                      init_position= np.array([[d, 0, 0]]).T)
+agents[0]   =   Agent(agent_id = 0, init_position = np.array([[0.1, 2.4, 5.4]]).T)
+agents[1]   =   Agent(agent_id = 1, init_position = np.array([[2.8, 5.4, 6.1]]).T)
+agents[2]   =   Agent(agent_id = 2, init_position = np.array([[2.15, 4.8, 4.3]]).T)
+agents[3]   =   Agent(agent_id = 3, init_position = np.array([[1.15, 0.4, 3.9]]).T)
+agents[4]   =   Agent(agent_id = 4, init_position = np.array([[3.0, 3.85, 5.4]]).T)
+agents[5]   =   Agent(agent_id = 5, init_position = np.array([[3.4, 4.25, 2.0]]).T)
+agents[6]   =   Agent(agent_id = 6, init_position = np.array([[3.45, 1.8, 2.2]]).T)
+agents[7]   =   Agent(agent_id = 7, init_position = np.array([[5.2, 5.0, 5.25]]).T)
+agents[8]   =   Agent(agent_id = 8, init_position = np.array([[5.3, 3.8, 0.1]]).T)
+agents[9]   =   Agent(agent_id = 9, init_position = np.array([[5.2, 0.8, 3.15]]).T)
+agents[10]  =   Agent(agent_id = 10, init_position = np.array([[6.2, 3.3, 5.6]]).T)
+agents[11]  =   Agent(agent_id = 11, init_position = np.array([[5.05, 3.8, 3.6]]).T)
+agents[12]  =   Agent(agent_id = 12, init_position = np.array([[4.15, 5.65, 3.4]]).T)
+agents[13]  =   Agent(agent_id = 13, init_position = np.array([[0.15, 3.4, 2.45]]).T)
+agents[14]  =   Agent(agent_id = 14, init_position = np.array([[1.85, 5.15, 0.65]]).T)
+agents[15]  =   Agent(agent_id = 15, init_position = np.array([[2.4, 2.4, 1.6]]).T)
+agents[16]  =   Agent(agent_id = 16, init_position = np.array([[1.4, 5.4, 2.4]]).T)
+agents[17]  =   Agent(agent_id = 17, init_position = np.array([[3.2, 3.4, 0.2]]).T)
+agents[18]  =   Agent(agent_id = 18, init_position = np.array([[5.4, 5.4, 1.4]]).T)
+agents[19]  =   Agent(agent_id = 19, init_position = np.array([[4.7, 2.4, 5.4]]).T)
 
 # Add error vector
-agent_speed = 0.25
-faulty_id = 5 #np.random.randint(0, high=num_agents)
-fault_vec = np.array([[-0.2417], [0.2106], [0]]) #agent_speed*2*(np.random.rand(dim, 1) - 0.5)
+# NOTE: may not work for some random cases
+# random case -> np.random.randint(low=0, high=num_agents, size=4)
+# tac paper case -> [0, 5, 7, 9, 10, 13]
+agent_speed = 0.25              # non-used variable
+faulty_id = [0, 5, 7, 9, 10, 13] 
+fault_vec   =   2*np.random.rand(dim,len(faulty_id))-np.ones((dim,len(faulty_id)))
+for order, id in enumerate(faulty_id):
+    agents[id].faulty = True
+    agents[id].error_vector = fault_vec[:,order][:,np.newaxis]
+
 x_true = []
 for id, agent in enumerate(agents):
     x_true.append(agent.error_vector)
 
 # Circling
 angular_vel = 2*np.pi / 100
-circ_r = 2
+circ_r = 0
 
 # Interagent measurement noise
-gaus_scale = 0.02
+gaus_scale = 0.00
 
 # Set Neighbors
-edges                   = [[0,1], [0,2], [0,3], 
-                           [0,4], [0,5], [1,2],
-                           [1,3], [1,4], [1,5],
-                           [2,3], [2,4], [2,5],
-                           [3,4], [3,5], [4,5],
-                           
-                           [1,0], [2,0], [3,0], 
-                           [4,0], [5,0], [2,1],
-                           [3,1], [4,1], [5,1],
-                           [3,2], [4,2], [5,2],
-                           [4,3], [5,3], [5,4]] # these edges are directed
+edges       = [[0,2], [0,3], [0,4], [0,16], 
+                [1,2], [1,4], [1,7], [1,11],
+                [2,4], [2,5], [2,7], [3,4],
+                [4,5], [4,6], [4,7], [4,10],
+                [5,6], [5,8], [6,7], [6,9],
+                [7,10], [8,9], [8,11], [9,11],
+                [9,10], [10,11], [12,5], [12,7],
+                [12,11], [12,2], [13,14], [13,15],
+                [14,15], [3,15], [5,15], [13,0],
+                [14,5], [6,14], [19,10], [19,4],
+                [19,9], [18,8], [18,17], [18,11],
+                [18,12], [17,14], [17,15], [17,8],
+                [17,18], [16,14], [16,2], [16,13],
+                [18,5], [15,6], [16,3]] 
+edges_flip  =   deepcopy(edges)
+for idx, dir_edge in enumerate(edges_flip):
+    dir_edge.reverse()
+
+edges       =   edges+edges_flip            # these edges are directed
 
 for agent_id, agent in enumerate(agents):
     # Neighbor List
@@ -233,11 +255,10 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
             p_hat[id] = agent.position + np.random.normal(scale=pos_noise, size=(dim, 1))
             est_pos_history[id][:, inner_i + outer_i*n_admm] = agent.position.flatten()
         
-        x_true[faulty_id] = (inner_i + outer_i*n_admm)*fault_vec.flatten()
-
-
         p = deepcopy(p_hat)
-        p[faulty_id] = deepcopy(p[faulty_id].flatten() + (inner_i + outer_i*n_admm)*fault_vec.flatten()).reshape(-1, 1) # True position of the agents
+        for _,agent_id in enumerate(faulty_id):
+            x_true[agent_id] = (inner_i + outer_i*n_admm)*fault_vec.flatten()       
+            p[agent_id] = deepcopy(p[agent_id].flatten() + (inner_i + outer_i*n_admm)*fault_vec.flatten()).reshape(-1, 1) # True position of the agents
         y = true_meas(p)
         z = [(y[i] - meas) for i, meas in enumerate(exp_meas)]
 
