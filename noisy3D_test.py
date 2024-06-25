@@ -40,10 +40,10 @@ n_scp           =   10  # Number of SCP iterations
 n_admm          =   10  # Number of ADMM iterations
 n_iter          =   n_admm * n_scp
 iam_noise       =   0.02
-pos_noise       =   0.02
+pos_noise       =   0.00
 show_prob1      =   False
 show_prob2      =   False
-rho             =   0.1
+rho             =   10
 use_threshold   =   False
 
 
@@ -341,6 +341,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
 ###     Plotting            - Static Position Estimates
 print("\nPlotting")
 print()
+# plt.rcParams['text.usetex'] = True
 
 # Create position estimate over time data
 p_hist = []
@@ -381,17 +382,23 @@ plt.grid(True)
 ###     Plotting            - Error Convergence
 # Show convergence of estimated error vector to true error vector over time
 x_norm_history = [x_norm_history[i].flatten() for i in range(num_agents)]
-fig_err = plt.figure(dpi=200)
+fig_err = plt.figure(dpi=200, figsize=(6,4))
 ax_err = fig_err.add_subplot()
+lines = [None] * num_agents
 for agent_id, agent in enumerate(agents):
     label_str = f"Agent {agent_id}"
-    ax_err.plot(total_iterations, x_norm_history[agent_id], label=label_str)
-plt.title("Convergence of Error Vector")
-plt.xlabel("Iterations")
-plt.ylabel("||x* - x||")
-plt.ylim((0, 1.1*np.linalg.norm(fault_vec)))
+    plt_color = 'slategray'
+    if agent_id is faulty_id:
+        plt_color = 'orangered'
+    lines[agent_id] = ax_err.plot(total_iterations, x_norm_history[agent_id], c=plt_color, label=label_str)[0]
+plt.title('Convergence of Error Vector')
+plt.xlabel('ADMM Iterations')
+plt.ylabel('||x*[i] - x[i]||')
+plt.ylim((0, 2.0))
 plt.xlim((0, n_scp*n_admm))
-plt.legend(loc='best')
+plt.xticks(ticks=range(0, n_iter, n_admm))
+plt.yticks(ticks=np.arange(0, 2, 0.5))
+plt.legend([lines[0], lines[faulty_id]], ["Nominal Agents", "Faulty Agents"])
 plt.grid(True)
 
 print(f"Penalty Parameter: {rho}")
