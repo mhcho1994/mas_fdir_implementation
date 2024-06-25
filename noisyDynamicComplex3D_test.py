@@ -36,16 +36,16 @@ from iam_models import distance
 dim             =   3   # 2 or 3
 num_agents      =   20
 num_faulty      =   1   # must be << num_agents for sparse error assumption
-n_scp           =   5  # Number of SCP iterations
+n_scp           =   10  # Number of SCP iterations
 n_admm          =   10  # Number of ADMM iterations
 n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 use_threshold   =   False
-rho             =   1.0
-iam_noise       =   0.00
-pos_noise       =   0.00
-warm_start      =   False
+rho             =   0.5
+iam_noise       =   0.01
+pos_noise       =   0.01
+warm_start      =   True
 lam_lim         =   1
 mu_lim          =   1
 
@@ -77,13 +77,13 @@ agents[19]  =   Agent(agent_id = 19, init_position = np.array([[4.7, 2.4, 5.4]])
 # NOTE: may not work for some random cases
 # random case -> np.random.randint(low=0, high=num_agents, size=4)
 # tac paper case -> [0, 5, 7, 9, 10, 13]
-agent_speed = 0.25              # non-used variable
+agent_speed = 0.01
 faulty_id = [0, 5, 7, 9, 10, 13] 
 fault_vec   =   []
 for index, agent_id in enumerate(faulty_id):
-    fault_vec.append(2*np.random.rand(dim,)-np.ones((dim,)))
-    agents[agent_id].faulty = True
-    agents[agent_id].error_vector = fault_vec[index][:,np.newaxis]
+    fault_vec.append(agent_speed*(2*np.random.rand(dim,)-np.ones((dim,))))
+    # agents[agent_id].faulty = True
+    agents[agent_id].error_vector = fault_vec[index][:,np.newaxis].reshape((dim, -1))
 
 x_true = []
 for id, agent in enumerate(agents):
@@ -92,9 +92,6 @@ for id, agent in enumerate(agents):
 # Circling
 angular_vel = 2*np.pi / 100
 circ_r = 0
-
-# Interagent measurement noise
-gaus_scale = 0.00
 
 # Set Neighbors
 edges       = [[0,2], [0,3], [0,4], [0,16], 
@@ -131,6 +128,7 @@ for agent_id, agent in enumerate(agents):
     agent.set_edge_indices(edge_list)
 
 
+
 ###     Useful Functions
 # Measurement model Phi
 def meas_model(p, x_hat):
@@ -153,6 +151,7 @@ def true_meas(p):
 
     return measurements
 
+
 # Finds row of R
 def get_Jacobian_row(edge_ind, p, x):
     edge = edges[edge_ind]
@@ -169,6 +168,7 @@ def get_Jacobian_row(edge_ind, p, x):
 
     return R_k
 
+
 # Computes whole R matrix
 def get_Jacobian_matrix(p, x):
     R = []
@@ -177,6 +177,7 @@ def get_Jacobian_matrix(p, x):
         R.append(get_Jacobian_row(edge_ind, p, x))
     
     return R
+
 
 
 ###     Initializations     - Measurements and Positions
@@ -233,14 +234,19 @@ print(f"Warm Start: {warm_start}")
 ###     Initializations     - Storing Dual Variables
 lam_norm_history = [np.zeros((len(agents[i].get_edge_indices()), n_iter)) for i in range(num_agents)]
 mu_norm_history = [np.zeros((len(agents[i].get_neighbors()), n_iter)) for i in range(num_agents)]
+avg_err_rmse = 0.0
 
 
 ###     Looping             - SCP Outer Loop
 print("\nLooping")
 for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
+    # Noise in Position Estimate
+    p_hat_noise = deepcopy(p_hat)
+    for i, _ in enumerate(p_hat_noise):
+        p_hat_noise[i] = p_hat[i] + np.random.normal(scale=pos_noise, size=(dim, 1))
 
-    exp_meas = meas_model(p_hat, x_star)
-    R = get_Jacobian_matrix(p_hat, x_star)
+    exp_meas = meas_model(p_hat_noise, x_star)
+    R = get_Jacobian_matrix(p_hat_noise, x_star)
 
     for agent in agents:
         agent.init_w(np.zeros((dim, 1)), agent.get_neighbors())
@@ -253,15 +259,16 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
             angle = (inner_i + outer_i*n_admm)*angular_vel
             del_pos = np.array([[circ_r*np.cos(angle)], [circ_r*np.sin(angle)], [0]])
             agent.position = p_orig[id] + del_pos
-            p_hat[id] = agent.position + np.random.normal(scale=pos_noise, size=(dim, 1))
+            p_hat[id] = agent.position
             est_pos_history[id][:, inner_i + outer_i*n_admm] = agent.position.flatten()
         
         p = deepcopy(p_hat)
-        for index,agent_id in enumerate(faulty_id):
+        for index, agent_id in enumerate(faulty_id):
             x_true[agent_id] = (inner_i + outer_i*n_admm)*fault_vec[index].flatten()       
             p[agent_id] = deepcopy(p[agent_id].flatten() + (inner_i + outer_i*n_admm)*fault_vec[index].flatten()).reshape(-1, 1) # True position of the agents
         y = true_meas(p)
         z = [(y[i] - meas) for i, meas in enumerate(exp_meas)]
+
 
         ##      Minimization        - Primal Variable 1
         for agent_id, agent in enumerate(agents):
@@ -474,9 +481,10 @@ ax.set_title("Agent Estimated Position (ANIMATION)")
 ax.set_xlabel("x position")
 ax.set_ylabel("y position")
 ax.set_zlabel("z position")
-ax.set_xlim((-20, 20))
-ax.set_ylim((-20, 20))
-ax.set_zlim((-5, 5))
+# ax.set_xlim((0, 8))
+# ax.set_ylim((0, 8))
+# ax.set_zlim((0, 8))
+ax.set_aspect('equal')
 scat_pos_recons = [None] * num_agents # Position estimate during reconstruction
 scat_pos_est = [None] * num_agents # Initial position estimate
 scat_pos_true = [None] * num_agents # True positions
@@ -547,7 +555,7 @@ def update_pos_plot(frame):
 # Call update function
 pos_ani = animation.FuncAnimation(fig=fig, func=update_pos_plot, frames=n_iter, interval=100)
 dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-fname = "fig/3D-NoisyDynamicHexagon/pos3D_ani_" + dt_string + ".gif"
+fname = "fig/3D-NoisyDynamicComplex/pos3D_ani_" + dt_string + ".gif"
 pos_ani.save(filename=fname, writer="pillow")
 
 
