@@ -42,8 +42,8 @@ n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 use_threshold   =   False
-rho             =   0.5
-iam_noise       =   0.01
+rho             =   1.0
+iam_noise       =   0.02
 pos_noise       =   0.01
 warm_start      =   True
 lam_lim         =   1
@@ -107,7 +107,8 @@ edges       = [[0,2], [0,3], [0,4], [0,16],
                 [19,9], [18,8], [18,17], [18,11],
                 [18,12], [17,14], [17,15], [17,8],
                 [17,18], [16,14], [16,2], [16,13],
-                [18,5], [15,6], [16,3]] 
+                [18,5], [15,6], [16,3], [0,19],
+                [7,19], [17,5]] 
 edges_flip  =   deepcopy(edges)
 for idx, dir_edge in enumerate(edges_flip):
     dir_edge.reverse()
@@ -360,7 +361,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
         for agent_id, agent in enumerate(agents):
             
             # Summation for c() constraint
-            for _, edge_ind in enumerate(agent.get_edge_indices()):
+            for i, edge_ind in enumerate(agent.get_edge_indices()):
                 constr_c = R[edge_ind][:, dim*agent_id:dim*(agent_id+1)] @ agent.x_bar - z[edge_ind]
                 for nbr_id in agent.get_neighbors():
                     constr_c += R[edge_ind][:, dim*nbr_id:dim*(nbr_id+1)] @ agents[nbr_id].w[agent_id]
@@ -373,7 +374,7 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop ", leave=False):
                 lam_norm_history[agent_id][i, (inner_i + outer_i*n_admm)] = np.linalg.norm(deepcopy(new_lam))
 
             # Summation for d() constraint
-            for _, nbr_id in enumerate(agent.get_neighbors()):
+            for i, nbr_id in enumerate(agent.get_neighbors()):
                 constr_d = agent.x_bar - agent.w[nbr_id]
 
                 if (not warm_start) and (np.linalg.norm(constr_d) > mu_lim):
