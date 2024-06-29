@@ -1,4 +1,8 @@
-
+# byte-compiled/optimized/DLL files
+__pycache__/
+*.py[cod]
 *.code-workspace
-*.pyc
+
+# simulation results and graphs
+fig/
 *.gif
