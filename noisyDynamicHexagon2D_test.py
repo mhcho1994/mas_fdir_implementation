@@ -164,7 +164,7 @@ def get_Jacobian_rank(R):
     
     return np.linalg.matrix_rank(jac_matrix)
 
-# 
+# Returns the matrix norm of the difference between old and new R matrices
 def get_Jacobian_matrix_norm_diff(R_old, R_new):
 
     old_matrix = R_old[0]

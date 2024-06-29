@@ -6,3 +6,4 @@ __pycache__/
 # simulation results and graphs
 fig/
 *.gif
+*.svg

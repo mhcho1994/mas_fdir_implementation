@@ -25,6 +25,7 @@ import matplotlib.animation as animation
 from copy import deepcopy
 from datetime import datetime
 from tqdm import tqdm
+from time import time
 
 ###     Imports             - User-Defined Files
 from generic_agent import GenericAgent as Agent
@@ -35,16 +36,16 @@ from iam_models import distance
 ###     Initializations     - Scalars
 dim             =   3   # 2 or 3
 num_agents      =   20
-num_faulty      =   1   # must be << num_agents for sparse error assumption
-n_scp           =   10  # Number of SCP iterations
+num_faulty      =   6   # must be << num_agents for sparse error assumption
+n_scp           =   12  # Number of SCP iterations
 n_admm          =   10  # Number of ADMM iterations
 n_iter          =   n_admm * n_scp
 show_prob1      =   False
 show_prob2      =   False
 use_threshold   =   False
-rho             =   0.5
+rho             =   0.75
 iam_noise       =   0.02
-pos_noise       =   0.00
+pos_noise       =   0.02
 warm_start      =   True
 lam_lim         =   1
 mu_lim          =   1
@@ -109,7 +110,8 @@ edges       =  [[0,2], [0,3], [0,4], [0,16],
                 [19,9], [18,8], [18,17], [18,11],
                 [18,12], [17,14], [17,15], [17,8],
                 [17,18], [16,14], [16,2], [16,13],
-                [18,5], [15,6], [16,3]] 
+                [18,5], [15,6], [16,3], [0,19],
+                [7,19], [17,5]] 
 edges_flip  =   deepcopy(edges)
 for idx, dir_edge in enumerate(edges_flip):
     dir_edge.reverse()
@@ -203,18 +205,20 @@ for agent_id, agent in enumerate(agents):
 print("\n~ ~ ~ ~ PARAMETERS ~ ~ ~ ~")
 print("rho:", rho)
 print("Number of agents:", num_agents)
-print("Faulty Agent ID:", faulty_id)
-print("Faulty Agent Vector:", fault_vec)
+print("Faulty Agent ID and Vector:")
+for i, id in enumerate(faulty_id):
+    print(f"\tID: {id}\t\t Vector: {fault_vec[i].flatten()}")
 
 
-### Store stuff
+###     Store stuff
 lam_norm_history = [np.zeros((len(agents[i].get_edge_indices()), n_iter)) for i in range(num_agents)]
 mu_norm_history = [np.zeros((len(agents[i].get_neighbors()), n_iter)) for i in range(num_agents)]
 sum_err_rmse = 0.0
+start_time = time()
 
 ###     Looping             - SCP Outer Loop
 print("\nStarting Loop")
-for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
+for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=True):
     # Noise in Position Estimate
     p_hat_noise = deepcopy(p_hat)
     for i, _ in enumerate(p_hat_noise):
@@ -359,6 +363,18 @@ for outer_i in tqdm(range(n_scp), desc="SCP Loop", leave=False):
 
 ###     END Looping         - SCP Outer Loop
 
+final_time = time()
+print("==================================================================================")
+print(f"IAM Noise: {iam_noise}")
+print(f"Position Noise: {pos_noise}")
+print(f"Penalty Parameter: {rho}")
+print(f"Warm Start: {warm_start}")
+print("----------------------------------------------------------------------------------")
+print(f"Average RMSE: {sum_err_rmse / num_agents} m")
+print(f"Elapsed Time: {final_time - start_time} seconds")
+print(f"Average Time per Iteration: {(final_time - start_time)/n_iter} seconds")
+print("==================================================================================")
+
 
 
 ###     Plotting            - Static Position Estimates
@@ -375,7 +391,7 @@ for id in range(num_agents):
     p_hist.append(p_id)
 
 # Compare position estimates before and after reconstruction
-fig1 = plt.figure()
+fig1 = plt.figure(dpi=300)
 ax1 = fig1.add_subplot(projection='3d')
 ax1.set_title("Agent Position Estimates")
 ax1.set_xlabel("x")
@@ -383,7 +399,7 @@ ax1.set_ylabel("y")
 ax1.set_zlabel("z")
 
 for agent_id, agent in enumerate(agents): # Draw points
-    ax1.scatter(p_hist[agent_id][0, -1], p_hist[agent_id][1, -1], p_hist[agent_id][2, -1], marker='*', c='m', label="After", s=100)
+    ax1.scatter(p_hist[agent_id][0, -1], p_hist[agent_id][1, -1], p_hist[agent_id][2, -1], marker='*', c='c', label="After", s=100)
     # ax1.scatter(p_est[agent_id][0], p_est[agent_id][1], p_est[agent_id][2], marker='*', c='m', label="After", s=100)
     ax1.scatter(p_hat[agent_id][0], p_hat[agent_id][1], p_hat[agent_id][2], facecolors='none', edgecolors='orangered', label="Before", s=100)
     ax1.scatter(p_true[agent_id][0], p_true[agent_id][1], p_true[agent_id][2], marker='x', c='g', label="True", s=100)
@@ -396,7 +412,7 @@ for i, edge in enumerate(edges): # Draw edges
     x = [p1[0], p2[0]]
     y = [p1[1], p2[1]]
     z = [p1[2], p2[2]]
-    ax1.plot(x, y, z, c='k', linewidth=1, alpha=0.5)[0]
+    ax1.plot(x, y, z, c='k', linewidth=1, alpha=0.25)[0]
 plt.legend(["With Inter-agent Measurements", "Without Inter-agent Measurements", "True Position"], loc='best', fontsize=6, markerscale=0.4)
 plt.grid(True)
 
@@ -405,7 +421,7 @@ plt.grid(True)
 ###     Plotting            - Error Convergence
 # Show convergence of estimated error vector to true error vector over time
 x_norm_history = [x_norm_history[i].flatten() for i in range(num_agents)]
-fig_err = plt.figure(figsize=(6,4))
+fig_err = plt.figure(dpi=300, figsize=(6,4))
 ax_err = fig_err.add_subplot()
 lines = [None] * num_agents
 
@@ -419,22 +435,23 @@ for agent_id, agent in enumerate(agents):
 plt.title('Convergence of Error Vector')
 plt.xlabel('ADMM Iterations')
 plt.ylabel('||x*[i] - x[i]||')
-plt.ylim((0, 1.0))
+plt.ylim((0, 2.0))
 plt.xlim((0, n_scp*n_admm))
 plt.xticks(ticks=range(0, n_iter, n_admm))
-plt.yticks(ticks=np.arange(0, 1, 0.25))
-plt.legend([lines[0], lines[faulty_id[0]]], ["Nominal Agents", "Faulty Agents"])
+plt.yticks(ticks=np.arange(0, 2, 0.25))
+plt.legend([lines[1], lines[faulty_id[0]]], ["Nominal Agents", "Faulty Agents"])
 plt.grid(True)
 
-print(f"Penalty Parameter: {rho}")
-print(f"Average RMSE: {sum_err_rmse / num_agents}")
+dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+fname_err = "fig/3D-NoisyComplex/err_conv_" + dt_string + ".svg"
+plt.savefig(fname_err, dpi=300)
 
 
 
 ###     Plotting            - Animation
 
 # Start figure
-fig2 = plt.figure()
+fig2 = plt.figure(dpi=300)
 ax2 = fig2.add_subplot(projection='3d')
 ax2.set_title("Agent Estimated Position")
 ax2.set_xlabel("x position")
@@ -453,6 +470,8 @@ for agent_id, _ in enumerate(agents):
                                         marker='o', markerfacecolor='none', c='orangered', linestyle='None', label="Before", markersize=10)[0]
     scat_pos_true[agent_id] = ax2.plot(p_true[agent_id][0], p_true[agent_id][1], p_true[agent_id][2], 
                                         marker='x', c='g', linestyle='None', label="True", markersize=10)[0]
+    # ax2.text(p_hat[agent_id][0], p_hat[agent_id][1], p_hat[agent_id][2],
+    #         "%s" % (agent_id), size=10, zorder=1, color='k')
 
 # Draw line for each edge of network
 for i, edge in enumerate(edges):
@@ -494,7 +513,6 @@ def update_pos_plot(frame):
     
 # Call update function
 pos_ani = animation.FuncAnimation(fig=fig2, func=update_pos_plot, frames=n_iter, interval=100, blit=False, repeat=True)
-dt_string = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 fname = "fig/3D-NoisyComplex/pos3D_ani_" + dt_string + ".gif"
 pos_ani.save(filename=fname, writer="pillow")
 
